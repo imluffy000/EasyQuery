@@ -67,6 +67,45 @@ class Embedder(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+def candidates_from_snapshot(snapshot: Any) -> list[TableCandidate]:
+    """Build candidates directly from a live introspection result.
+
+    Used by the evaluation harness and by first-sync flows, where metadata has
+    not been persisted yet.
+    """
+    return [
+        TableCandidate(
+            schema=table.schema,
+            name=table.name,
+            description=table.comment or "",
+            estimated_rows=table.estimated_rows,
+            kind=table.kind,
+            columns=[
+                {
+                    "name": c.name,
+                    "data_type": c.data_type,
+                    "nullable": c.nullable,
+                    "is_primary_key": c.is_primary_key,
+                    "is_unique": c.is_unique,
+                    "comment": c.comment,
+                }
+                for c in table.columns
+            ],
+            foreign_keys=[
+                {
+                    "column": fk.column,
+                    "references_schema": fk.references_schema,
+                    "references_table": fk.references_table,
+                    "references_column": fk.references_column,
+                    "constraint_name": fk.constraint_name,
+                }
+                for fk in table.foreign_keys
+            ],
+        )
+        for table in snapshot.tables
+    ]
+
+
 @dataclass
 class TableCandidate:
     """One table plus everything retrieval needs to score and render it."""
