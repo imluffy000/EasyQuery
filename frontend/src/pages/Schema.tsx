@@ -1,10 +1,18 @@
-/** Schema Explorer: tree on the left, table detail on the right. */
+/**
+ * Schema Explorer: tree of tables, then the detail for the selected one.
+ *
+ * Layout note: <main> in AppShell is `overflow-hidden`, so this page owns its
+ * own scrolling. A fixed 288px tree beside the rail left the detail pane with
+ * nothing to sit in below ~900px and it was clipped, not scrollable. The panes
+ * are therefore stacked into one column below `lg` — tree first, capped so the
+ * detail stays reachable — and only become side-by-side at `lg` and up.
+ */
 
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Key, Link2, Search, Table2 } from 'lucide-react'
 
-import { Badge, EmptyState, ErrorState, Panel, Skeleton } from '@/components/ui'
+import { AsyncBoundary, Badge, EmptyState, Panel, Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn, formatCompact, formatRelative } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
@@ -16,6 +24,7 @@ export function SchemaPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const treeId = useId()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['schema', workspaceId, databaseId],
@@ -33,39 +42,69 @@ export function SchemaPage() {
   }, [data, selected])
 
   if (!databaseId) {
-    return <EmptyState title="No database selected" description="Choose a database to explore." />
-  }
-  if (isLoading) {
     return (
-      <div className="space-y-2 p-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-6 w-full" />
-        ))}
+      <div className="h-full overflow-y-auto">
+        <EmptyState
+          icon={<Table2 className="h-7 w-7" aria-hidden />}
+          title="No database selected"
+          description="Choose a database from the top bar to explore its tables."
+        />
       </div>
     )
   }
-  if (error) {
+
+  // Loading, error and empty all resolve here so the tree is only ever built
+  // from a schema that actually arrived — an error must never read as "zero
+  // tables".
+  if (isLoading || error || !data || data.schemas.length === 0) {
     return (
-      <div className="p-4">
-        <ErrorState message="Could not load the schema." onRetry={() => void refetch()} />
+      <div className="h-full overflow-y-auto p-4">
+        <AsyncBoundary
+          isLoading={isLoading}
+          isError={Boolean(error)}
+          isEmpty
+          onRetry={() => void refetch()}
+          errorMessage="Could not load the schema."
+          skeleton={
+            <div className="mx-auto max-w-4xl space-y-1.5">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Skeleton key={i} className="h-6 w-full" />
+              ))}
+            </div>
+          }
+          empty={
+            <EmptyState
+              icon={<Table2 className="h-7 w-7" aria-hidden />}
+              title="Schema not synced"
+              description="Sync the schema from the Databases page to explore tables and relationships."
+            />
+          }
+        >
+          {null}
+        </AsyncBoundary>
       </div>
-    )
-  }
-  if (!data || data.schemas.length === 0) {
-    return (
-      <EmptyState
-        icon={<Table2 className="h-7 w-7" />}
-        title="Schema not synced"
-        description="Sync the schema from the Databases page to explore tables and relationships."
-      />
     )
   }
 
   const q = search.trim().toLowerCase()
+  const visible = data.schemas
+    .map((schema) => ({
+      schema,
+      tables: schema.tables.filter(
+        (t) =>
+          !q ||
+          t.name.toLowerCase().includes(q) ||
+          t.columns.some((c) => c.name.toLowerCase().includes(q)),
+      ),
+    }))
+    .filter((group) => group.tables.length > 0)
 
   return (
-    <div className="flex h-full">
-      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-surface">
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+      <div
+        className="flex w-full shrink-0 flex-col border-b border-border bg-surface
+                   lg:h-full lg:w-72 lg:border-b-0 lg:border-r"
+      >
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-2.5">
           <Search className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden />
           <input
@@ -73,83 +112,97 @@ export function SchemaPage() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tables and columns"
             aria-label="Search schema"
+            aria-controls={treeId}
             className="w-full bg-transparent text-xs text-fg placeholder:text-subtle focus:outline-none"
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-          {data.schemas.map((schema) => {
-            const tables = schema.tables.filter(
-              (t) =>
-                !q ||
-                t.name.toLowerCase().includes(q) ||
-                t.columns.some((c) => c.name.toLowerCase().includes(q)),
-            )
-            if (tables.length === 0) return null
-            const isCollapsed = collapsed[schema.name]
+        {/*
+          Capped rather than flex-1 when stacked, so the tree cannot push the
+          detail pane off-screen on a narrow viewport.
+        */}
+        <div
+          id={treeId}
+          className="max-h-[40vh] overflow-y-auto p-1.5 lg:max-h-none lg:min-h-0 lg:flex-1"
+        >
+          {visible.length === 0 ? (
+            <p className="px-1.5 py-6 text-center text-xs text-muted">
+              No table or column matches “{search.trim()}”.
+            </p>
+          ) : (
+            visible.map(({ schema, tables }) => {
+              const isCollapsed = Boolean(collapsed[schema.name])
+              const groupId = `${treeId}-${schema.name}`
 
-            return (
-              <div key={schema.name} className="mb-1">
-                <button
-                  onClick={() =>
-                    setCollapsed((c) => ({ ...c, [schema.name]: !c[schema.name] }))
-                  }
-                  className="flex w-full items-center gap-1 rounded px-1.5 py-1
-                             text-2xs font-medium uppercase tracking-wide text-subtle
-                             cursor-pointer hover:text-fg"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="h-3 w-3" aria-hidden />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" aria-hidden />
+              return (
+                <div key={schema.name} className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed((c) => ({ ...c, [schema.name]: !c[schema.name] }))}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={groupId}
+                    className="micro flex w-full items-center gap-1 px-1.5 py-1
+                               cursor-pointer transition-colors hover:text-fg"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
+                    ) : (
+                      <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
+                    )}
+                    <span className="truncate">{schema.name}</span>
+                    <span className="ml-auto font-mono normal-case tracking-normal">
+                      {tables.length}
+                    </span>
+                  </button>
+
+                  {!isCollapsed && (
+                    <ul id={groupId}>
+                      {tables.map((t) => {
+                        const key = `${schema.name}.${t.name}`
+                        const isSelected = selected === key
+                        return (
+                          <li key={key}>
+                            <button
+                              type="button"
+                              onClick={() => setSelected(key)}
+                              aria-current={isSelected ? true : undefined}
+                              className={cn(
+                                'flex w-full items-center gap-1.5 px-1.5 py-1 text-left',
+                                'border-l-2 text-xs cursor-pointer transition-colors',
+                                isSelected
+                                  ? 'border-accent bg-elevated text-fg'
+                                  : 'border-transparent text-muted hover:bg-elevated hover:text-fg',
+                              )}
+                            >
+                              <Table2 className="h-3 w-3 shrink-0 text-subtle" aria-hidden />
+                              <span className="truncate font-mono">{t.name}</span>
+                              <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-subtle">
+                                {formatCompact(t.estimated_rows ?? 0)}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
                   )}
-                  {schema.name}
-                  <span className="ml-auto font-mono normal-case">{tables.length}</span>
-                </button>
-
-                {!isCollapsed && (
-                  <ul>
-                    {tables.map((t) => {
-                      const key = `${schema.name}.${t.name}`
-                      return (
-                        <li key={key}>
-                          <button
-                            onClick={() => setSelected(key)}
-                            className={cn(
-                              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left',
-                              'text-xs cursor-pointer transition-colors',
-                              selected === key
-                                ? 'bg-elevated text-fg'
-                                : 'text-muted hover:bg-elevated/60 hover:text-fg',
-                            )}
-                          >
-                            <Table2 className="h-3 w-3 shrink-0 text-subtle" aria-hidden />
-                            <span className="truncate font-mono">{t.name}</span>
-                            <span className="ml-auto shrink-0 font-mono text-2xs text-subtle">
-                              {formatCompact(t.estimated_rows ?? 0)}
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            )
-          })}
+                </div>
+              )
+            })
+          )}
         </div>
 
         <div className="shrink-0 border-t border-border px-2.5 py-1.5">
-          <p className="text-2xs text-subtle">
-            Synced {formatRelative(data.last_synced_at)} · v{data.schema_version}
+          <p className="micro truncate">
+            Synced {formatRelative(data.last_synced_at)} ·{' '}
+            <span className="font-mono normal-case tracking-normal">v{data.schema_version}</span>
           </p>
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 lg:p-4">
         {!table ? (
           <EmptyState
-            icon={<Table2 className="h-7 w-7" />}
+            icon={<Table2 className="h-7 w-7" aria-hidden />}
             title="Select a table"
             description="Choose a table to see its columns, keys, indexes, and relationships."
           />
@@ -164,14 +217,17 @@ export function SchemaPage() {
 function TableDetail({ table }: { table: TableMeta }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <header>
-        <div className="flex items-center gap-2">
+      <header className="border-b border-border pb-3">
+        <p className="micro">Table</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
           <h1 className="font-mono text-lg text-fg">{table.name}</h1>
           <Badge tone="neutral">{table.kind.replace('_', ' ')}</Badge>
         </div>
-        {table.description && <p className="mt-1 text-xs text-muted">{table.description}</p>}
-        <p className="mt-1 font-mono text-2xs text-subtle">
-          {table.column_count} columns · ~{formatCompact(table.estimated_rows ?? 0)} rows
+        {table.description && <p className="mt-1.5 text-xs text-muted">{table.description}</p>}
+        <p className="readout mt-1.5">
+          <span className="tabular-nums">{table.column_count} columns</span>
+          <span aria-hidden>·</span>
+          <span className="tabular-nums">~{formatCompact(table.estimated_rows ?? 0)} rows</span>
         </p>
       </header>
 
@@ -179,11 +235,11 @@ function TableDetail({ table }: { table: TableMeta }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Column</th>
-              <th>Type</th>
-              <th>Nullable</th>
-              <th>Keys</th>
-              <th>Notes</th>
+              <th scope="col">Column</th>
+              <th scope="col">Type</th>
+              <th scope="col">Nullable</th>
+              <th scope="col">Keys</th>
+              <th scope="col">Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -223,9 +279,12 @@ function TableDetail({ table }: { table: TableMeta }) {
                 className="flex items-center gap-2 px-3 py-1.5 font-mono text-xs"
               >
                 <Link2 className="h-3 w-3 shrink-0 text-subtle" aria-hidden />
-                <span className="text-fg">{fk.column}</span>
-                <span className="text-subtle">→</span>
-                <span className="text-accent">
+                <span className="truncate text-fg">{fk.column}</span>
+                <span className="shrink-0 text-subtle" aria-hidden>
+                  →
+                </span>
+                <span className="sr-only">references</span>
+                <span className="truncate text-accent">
                   {fk.references_schema}.{fk.references_table}.{fk.references_column}
                 </span>
               </li>
