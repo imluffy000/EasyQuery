@@ -48,6 +48,8 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-echo}
       LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4096}
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000
       OTEL_ENDPOINT: http://otel-collector:4317
       LOG_LEVEL: INFO
