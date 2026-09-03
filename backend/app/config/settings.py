@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 14
 
     # --- LLM -----------------------------------------------------------------
-    llm_provider: Literal["anthropic", "openai", "echo"] = "anthropic"
+    llm_provider: Literal["anthropic", "openai", "openrouter", "echo"] = "anthropic"
     llm_model: str = "claude-sonnet-5"
     llm_api_key: str | None = None
     llm_timeout_seconds: int = 60

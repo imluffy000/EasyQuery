@@ -58,15 +58,36 @@ pipeline — schema retrieval, validation, `EXPLAIN`, execution — but returns 
 placeholder query instead of calling a model. It exists so the project runs
 and its tests pass with no API key and no network.
 
-For actual natural-language answers, set in `.env`:
+For actual natural-language answers, set in `.env` (git-ignored — never put a
+key in `.env.example`, which is committed):
 
 ```bash
+# Anthropic direct
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-5
 LLM_API_KEY=sk-ant-...
 ```
 
+```bash
+# OpenAI direct
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=sk-...
+```
+
+```bash
+# OpenRouter (one key, many vendors). Model ids are vendor-prefixed; browse
+# them at https://openrouter.ai/models
+LLM_PROVIDER=openrouter
+LLM_MODEL=anthropic/claude-sonnet-4.5
+LLM_API_KEY=sk-or-v1-...
+```
+
 then `make restart`.
+
+OpenRouter reports the actual cost of each call, so the analytics view shows
+real spend rather than the estimate from the local price table that the direct
+providers rely on.
 
 ---
 
@@ -182,7 +203,8 @@ Two abstractions keep the system extensible:
 - **`DatabaseConnector`** — everything above it is vendor-neutral. Adding MySQL
   means one subclass and one registry entry; no changes to the agent, services,
   or API.
-- **`LLMProvider`** — Anthropic, OpenAI, and the offline echo provider today.
+- **`LLMProvider`** — Anthropic, OpenAI, OpenRouter, and the offline echo
+  provider today.
   Every pipeline decision goes through `structured_generate`, which returns a
   validated Pydantic model, so no branch depends on parsing model prose.
 
@@ -252,7 +274,8 @@ Everything in `.env.example`. The ones that matter:
 | -------- | ----- |
 | `ENCRYPTION_KEY` | Protects stored database passwords. Rotating without re-encrypting makes existing connections unreadable. |
 | `JWT_SECRET` | Must be ≥32 chars in production; startup fails otherwise. |
-| `LLM_PROVIDER` | `anthropic`, `openai`, or `echo` (offline). |
+| `LLM_PROVIDER` | `anthropic`, `openai`, `openrouter`, or `echo` (offline). |
+| `LLM_MODEL` | Uses the provider's own naming; OpenRouter ids are vendor-prefixed (`anthropic/claude-sonnet-4.5`). |
 | `CORS_ORIGINS` | Comma-separated or a JSON array. A wildcard is rejected in production. |
 | `QUERY__MAX_ROWS` | Ceiling. A workspace or connection may tighten it, never widen it. |
 

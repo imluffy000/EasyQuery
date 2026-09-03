@@ -165,6 +165,32 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         return None
 
 
+def _error_message(body: Any) -> str:
+    """Pull the human-readable reason out of a provider error payload."""
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])[:200]
+        if isinstance(error, str):
+            return error[:200]
+        if body.get("message"):
+            return str(body["message"])[:200]
+    return str(body)[:200]
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """Best-effort reason from a provider error *response*.
+
+    Gateways put the actionable part in the body -- "insufficient credits",
+    "model not found", "context length exceeded". Without it every failure
+    reads as a bare status code and costs a debugging round-trip.
+    """
+    try:
+        return _error_message(response.json())
+    except ValueError:
+        return response.text.strip()[:200]
+
+
 class AnthropicProvider(LLMProvider):
     API_URL = "https://api.anthropic.com/v1/messages"
     API_VERSION = "2023-06-01"
@@ -224,11 +250,33 @@ class AnthropicProvider(LLMProvider):
 
 
 class OpenAIProvider(LLMProvider):
+    """OpenAI chat-completions. Also the base for API-compatible gateways."""
+
     API_URL = "https://api.openai.com/v1/chat/completions"
 
     def __init__(self, *, api_key: str, model: str = "gpt-4o", **kwargs: Any) -> None:
         super().__init__(model=model, **kwargs)
         self._api_key = api_key
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "content-type": "application/json",
+        }
+
+    def _payload(self, *, system: str, prompt: str, temperature: float) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        }
+
+    def _cost(self, body: dict[str, Any], input_tokens: int, output_tokens: int) -> float:
+        return estimate_cost(self.model, input_tokens, output_tokens)
 
     async def generate(self, *, system: str, prompt: str, temperature: float = 0.0) -> LLMResponse:
         import time
@@ -238,31 +286,33 @@ class OpenAIProvider(LLMProvider):
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     self.API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "max_tokens": self.max_tokens,
-                        "temperature": temperature,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": prompt},
-                        ],
-                    },
+                    headers=self._headers(),
+                    json=self._payload(system=system, prompt=prompt, temperature=temperature),
                 )
         except httpx.TimeoutException as exc:
             raise LLMError("The model timed out.", code="LLM_TIMEOUT") from exc
         except httpx.HTTPError as exc:
             raise LLMError("The model could not be reached.", code="LLM_UNREACHABLE") from exc
 
+        if response.status_code == 429:
+            raise LLMError(
+                f"Model rate limit reached. {_error_detail(response)}".strip(),
+                code="LLM_RATE_LIMITED",
+            )
         if response.status_code >= 400:
-            raise LLMError(f"Model returned {response.status_code}.", code="LLM_ERROR")
+            raise LLMError(
+                f"Model returned {response.status_code}: {_error_detail(response)}",
+                code="LLM_ERROR",
+            )
 
         body = response.json()
+        # A gateway can return HTTP 200 with an error body instead of a choice.
+        if "choices" not in body:
+            detail = _error_message(body)
+            raise LLMError(f"Model returned no completion: {detail}", code="LLM_ERROR")
+
         text = body["choices"][0]["message"]["content"] or ""
-        usage_block = body.get("usage", {})
+        usage_block = body.get("usage") or {}
         input_tokens = int(usage_block.get("prompt_tokens", 0))
         output_tokens = int(usage_block.get("completion_tokens", 0))
 
@@ -271,11 +321,59 @@ class OpenAIProvider(LLMProvider):
             usage=LLMUsage(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                cost_usd=estimate_cost(self.model, input_tokens, output_tokens),
+                cost_usd=self._cost(body, input_tokens, output_tokens),
                 model=self.model,
                 latency_ms=int((time.perf_counter() - started) * 1000),
             ),
         )
+
+
+class OpenRouterProvider(OpenAIProvider):
+    """OpenRouter -- an OpenAI-compatible gateway in front of many vendors.
+
+    Two things differ from OpenAI proper:
+
+    * The model id is namespaced (`anthropic/claude-sonnet-4.5`,
+      `openai/gpt-4o`), so the local `_PRICING` table will not match it.
+    * Asking for `usage.include` makes OpenRouter report what the call
+      actually cost, which beats any estimate we could compute. We fall back
+      to `estimate_cost` only if that field is absent.
+    """
+
+    API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "anthropic/claude-sonnet-4.5",
+        site_url: str | None = None,
+        app_name: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(api_key=api_key, model=model, **kwargs)
+        # Optional attribution headers; OpenRouter uses them for its rankings.
+        self._site_url = site_url
+        self._app_name = app_name
+
+    def _headers(self) -> dict[str, str]:
+        headers = super()._headers()
+        if self._site_url:
+            headers["HTTP-Referer"] = self._site_url
+        if self._app_name:
+            headers["X-Title"] = self._app_name
+        return headers
+
+    def _payload(self, *, system: str, prompt: str, temperature: float) -> dict[str, Any]:
+        payload = super()._payload(system=system, prompt=prompt, temperature=temperature)
+        payload["usage"] = {"include": True}
+        return payload
+
+    def _cost(self, body: dict[str, Any], input_tokens: int, output_tokens: int) -> float:
+        reported = (body.get("usage") or {}).get("cost")
+        if isinstance(reported, (int, float)):
+            return float(reported)
+        return estimate_cost(self.model, input_tokens, output_tokens)
 
 
 class EchoProvider(LLMProvider):
@@ -374,6 +472,15 @@ def build_provider(
             if not api_key:
                 raise ValueError("LLM_API_KEY is required for the openai provider.")
             return OpenAIProvider(
+                api_key=api_key,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                max_tokens=max_tokens,
+            )
+        case "openrouter":
+            if not api_key:
+                raise ValueError("LLM_API_KEY is required for the openrouter provider.")
+            return OpenRouterProvider(
                 api_key=api_key,
                 model=model,
                 timeout_seconds=timeout_seconds,
