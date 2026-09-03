@@ -1,47 +1,94 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
- * Light and dark are two complete palettes, not an inversion. Dark uses
- * neutral slate surfaces that step up in lightness with elevation, which is
- * what makes dense tables and code readable for long sessions.
+ * "Instrument" — a warm-neutral, border-led workspace.
+ *
+ * Three rules hold the whole system together:
+ *   1. Separation comes from rules and ground shifts, never from shadow.
+ *   2. Corners are square. Radius is reserved for genuinely round things
+ *      (status dots, avatars) so it stays meaningful.
+ *   3. Neutrals are warm (bone / oil), not blue-grey. The one chromatic
+ *      accent is a muted rust; everything else earns colour semantically.
+ *
+ * Every foreground token below was validated against every surface it can
+ * legally sit on: >= 4.5:1 for text, >= 3:1 for control borders and chart
+ * marks, in BOTH themes. Do not hand-edit a channel without re-checking.
  */
 @layer base {
   :root {
-    --bg: 250 250 251;
-    --surface: 255 255 255;
-    --elevated: 248 249 251;
-    --border: 226 230 236;
-    --border-strong: 203 209 219;
-    --fg: 17 24 39;
-    --muted: 90 100 116;
-    --subtle: 130 140 156;
-    --accent: 21 128 61;
+    /* Grounds: page is darker than the panels that sit on it. */
+    --bg: 237 233 225;
+    --surface: 250 248 243;
+    --elevated: 243 240 232;
+    --sunken: 228 223 213;
+
+    /* Rules. --border-control is the only one heavy enough to bound an input. */
+    --border: 214 208 196;
+    --border-strong: 186 178 163;
+    --border-control: 137 129 114;
+
+    /* Text. All three clear 4.5:1 on bg, surface and elevated. */
+    --fg: 28 26 23;
+    --muted: 92 86 76;
+    --subtle: 107 100 88;
+
+    --accent: 150 66 26;
     --accent-fg: 255 255 255;
-    --danger: 190 40 45;
-    --warn: 172 106 8;
-    --info: 30 90 190;
-    --ok: 21 128 61;
+
+    --danger: 163 42 32;
+    --warn: 140 84 6;
+    --info: 29 86 142;
+    --ok: 31 102 66;
+
+    /* Chart series: Okabe-Ito, ordered most-used first. CVD-separated to
+     * four series on this ground; beyond that charts must also label marks
+     * directly, which ChartView does. */
+    --series-1: 0 114 178;
+    --series-2: 213 94 0;
+    --series-3: 0 132 96;
+    --series-4: 174 92 140;
+    --series-5: 176 122 0;
+    --series-6: 0 138 190;
+    --series-7: 94 60 20;
+
+    --scrim: 40 34 26;
   }
 
-  .dark {
-    --bg: 15 23 42;
-    --surface: 27 35 54;
-    --elevated: 34 43 64;
-    --border: 45 56 79;
-    --border-strong: 71 85 105;
-    --fg: 248 250 252;
-    --muted: 148 163 184;
-    --subtle: 110 124 145;
-    --accent: 34 197 94;
-    --accent-fg: 15 23 42;
-    --danger: 248 113 113;
-    --warn: 251 191 36;
-    --info: 96 165 250;
-    --ok: 34 197 94;
+  :root.dark {
+    --bg: 26 24 21;
+    --surface: 36 33 29;
+    --elevated: 46 42 37;
+    --sunken: 20 18 16;
+
+    --border: 60 55 48;
+    --border-strong: 84 77 67;
+    --border-control: 122 113 99;
+
+    --fg: 240 236 229;
+    --muted: 174 166 153;
+    --subtle: 159 151 137;
+
+    --accent: 224 138 92;
+    --accent-fg: 28 26 23;
+
+    --danger: 240 150 140;
+    --warn: 224 178 101;
+    --info: 126 178 224;
+    --ok: 122 198 162;
+
+    /* Unmodified Okabe-Ito: on this ground it clears 3:1 at all seven and
+     * matches the reference CVD separation. */
+    --series-1: 86 180 233;
+    --series-2: 230 159 0;
+    --series-3: 0 158 115;
+    --series-4: 204 121 167;
+    --series-5: 213 94 0;
+    --series-6: 0 114 178;
+    --series-7: 240 228 66;
+
+    --scrim: 12 10 9;
   }
 
   * {
@@ -57,25 +104,45 @@
   body {
     @apply bg-bg text-fg font-sans antialiased;
     font-size: 0.875rem;
+    font-feature-settings: 'tnum' 0;
     text-rendering: optimizeLegibility;
   }
 
-  /* Focus is always visible; the workspace is keyboard-driven. */
+  /* Digits line up in every table, stat and axis. */
+  .tnum,
+  .data-table td,
+  .data-table th,
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Keyboard focus is a square bracket of accent, never a soft glow. */
   :focus-visible {
     @apply outline-none ring-2 ring-accent ring-offset-1 ring-offset-bg;
   }
 
+  /* A box-shadow ring disappears in forced-colours mode; fall back to outline. */
+  @media (forced-colors: active) {
+    :focus-visible {
+      outline: 2px solid Highlight;
+      outline-offset: 1px;
+    }
+  }
+
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    @apply bg-sunken;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-border-strong rounded;
-    border: 2px solid transparent;
+    @apply bg-border-strong;
+    border: 3px solid transparent;
     background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-control;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -89,33 +156,47 @@
 }
 
 @layer components {
+  /* A bounded region. Square, ruled, never lifted. */
   .panel {
-    @apply bg-surface border border-border rounded-lg;
+    @apply bg-surface border border-border;
+  }
+
+  /* The instrument label: small, spaced, uppercase. Used for every
+   * section eyebrow, table header and status key in the app. */
+  .micro {
+    @apply text-2xs font-medium uppercase tracking-[0.12em] text-subtle;
   }
 
   .field {
-    @apply w-full bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg
+    @apply w-full bg-surface border border-border-control px-2.5 py-1.5 text-sm text-fg
            placeholder:text-subtle transition-colors
            focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent
-           disabled:opacity-50 disabled:cursor-not-allowed;
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
 
   .label {
-    @apply block text-xs font-medium text-muted mb-1;
+    @apply block text-2xs font-medium uppercase tracking-[0.1em] text-muted mb-1;
   }
 
-  /* Dense, scannable table for query results. */
+  /* Dense result grid. Column rules are what make a wide table scannable,
+   * so they are drawn, not implied by spacing. */
   .data-table {
     @apply w-full border-collapse text-xs font-mono;
   }
   .data-table th {
     @apply sticky top-0 z-10 bg-elevated text-left font-medium text-muted
-           px-2.5 py-1.5 border-b border-border whitespace-nowrap;
+           px-2.5 py-1.5 border-b border-border-strong whitespace-nowrap
+           text-2xs uppercase tracking-[0.08em];
   }
   .data-table td {
-    @apply px-2.5 py-1 border-b border-border/60 whitespace-nowrap text-fg;
+    @apply px-2.5 py-1 border-b border-border whitespace-nowrap text-fg;
   }
   .data-table tbody tr:hover td {
-    @apply bg-elevated/60;
+    @apply bg-elevated;
+  }
+
+  /* Row of key/value readouts under a result — the "instrument panel". */
+  .readout {
+    @apply flex items-center gap-1.5 text-2xs font-mono uppercase tracking-[0.08em] text-subtle;
   }
 }
