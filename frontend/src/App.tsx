@@ -1,19 +1,26 @@
-import { useEffect } from 'react'
+import { lazy, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { Spinner } from '@/components/ui'
 import { api, tokens } from '@/lib/api'
-import { AnalyticsPage } from '@/pages/Analytics'
-import { ChatPage } from '@/pages/Chat'
-import { DashboardPage } from '@/pages/Dashboard'
-import { DatabasesPage } from '@/pages/Databases'
-import { HistoryPage } from '@/pages/History'
+import { LandingPage } from '@/pages/Landing'
 import { LoginPage } from '@/pages/Login'
-import { SavedPage } from '@/pages/Saved'
-import { SchemaPage } from '@/pages/Schema'
-import { SettingsPage } from '@/pages/Settings'
+
+/*
+ * Routes are split so the Suspense boundary in AppShell is real. Imported
+ * eagerly, every page landed in the entry bundle and that fallback could
+ * never fire. Login stays eager: it is the first paint for a signed-out user.
+ */
+const DashboardPage = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.DashboardPage })))
+const DatabasesPage = lazy(() => import('@/pages/Databases').then((m) => ({ default: m.DatabasesPage })))
+const ChatPage = lazy(() => import('@/pages/Chat').then((m) => ({ default: m.ChatPage })))
+const SchemaPage = lazy(() => import('@/pages/Schema').then((m) => ({ default: m.SchemaPage })))
+const HistoryPage = lazy(() => import('@/pages/History').then((m) => ({ default: m.HistoryPage })))
+const SavedPage = lazy(() => import('@/pages/Saved').then((m) => ({ default: m.SavedPage })))
+const AnalyticsPage = lazy(() => import('@/pages/Analytics').then((m) => ({ default: m.AnalyticsPage })))
+const SettingsPage = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.SettingsPage })))
 import { useAppStore } from '@/stores/useAppStore'
 
 /**
@@ -58,10 +65,25 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/** The marketing page is for signed-out visitors; members go to the app. */
+function PublicOnly({ children }: { children: React.ReactNode }) {
+  if (tokens.access) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
 export function App() {
   return (
     <Routes>
+      <Route
+        path="/"
+        element={
+          <PublicOnly>
+            <LandingPage />
+          </PublicOnly>
+        }
+      />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<LoginPage />} />
       <Route
         element={
           <RequireAuth>
@@ -69,7 +91,7 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/databases" element={<DatabasesPage />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/schema" element={<SchemaPage />} />
