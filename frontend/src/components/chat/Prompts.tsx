@@ -37,7 +37,7 @@ export function StatusTrail({ events }: { events: StreamEventName[] }) {
   const settled = current === 'complete' || current === 'error'
 
   return (
-    <ol className="space-y-1" aria-live="polite">
+    <ol className="space-y-1">
       {visible.map((event, i) => {
         const isLast = i === visible.length - 1
         const done = !isLast || settled
@@ -74,7 +74,7 @@ export function ClarificationPrompt({
   const [custom, setCustom] = useState('')
 
   return (
-    <div className="mt-2 rounded border border-info/30 bg-info/5 p-3">
+    <div className="mt-2 border border-info/30 bg-info/5 p-3">
       <p className="text-sm text-fg">{clarification.question}</p>
       {clarification.dimension && (
         <p className="mt-0.5 text-2xs text-subtle">
@@ -136,7 +136,7 @@ export function ConfirmationPrompt({
   disabled?: boolean
 }) {
   return (
-    <div className="mt-2 rounded border border-warn/30 bg-warn/5 p-3">
+    <div className="mt-2 border border-warn/30 bg-warn/5 p-3">
       <div className="flex items-start gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />
         <div className="min-w-0 flex-1">

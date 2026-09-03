@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   Bookmark,
@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/databases', label: 'Databases', icon: Database },
   { to: '/chat', label: 'Chat', icon: MessageSquare },
   { to: '/schema', label: 'Schema', icon: Table2 },
@@ -33,79 +33,107 @@ const NAV = [
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
 ] as const
 
+const ITEM = 'flex h-8 items-center gap-2.5 px-2.5 cursor-pointer transition-colors border-l-2'
+
+/**
+ * Active state is a solid accent rule on the leading edge plus a ground
+ * shift — two channels, so it does not depend on colour alone.
+ */
+const itemClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    ITEM,
+    'text-2xs font-medium uppercase tracking-[0.1em]',
+    isActive
+      ? 'border-accent bg-elevated text-fg'
+      : 'border-transparent text-muted hover:bg-elevated hover:text-fg',
+  )
+
 export function AppShell() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const { pathname } = useLocation()
+
+  const routeName =
+    NAV.find((n) => pathname.startsWith(n.to))?.label ??
+    (pathname.startsWith('/settings') ? 'Settings' : 'Page')
 
   return (
     <div className="flex h-full flex-col bg-bg">
+      <a
+        href="#workspace"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50
+                   focus:border focus:border-accent focus:bg-surface focus:px-3 focus:py-1.5
+                   focus:text-xs"
+      >
+        Skip to content
+      </a>
+
       <TopBar />
+
       <div className="flex min-h-0 flex-1">
+        {/*
+          Below lg the rail is always icon-only. The workspace needs its
+          horizontal budget for the schema tree and the details drawer; a
+          208px label column at 768px is what pushed content off-screen.
+        */}
         <nav
           aria-label="Main"
           className={cn(
             'flex shrink-0 flex-col justify-between border-r border-border bg-surface',
             'transition-[width] duration-200',
-            collapsed ? 'w-13' : 'w-52',
+            'w-13',
+            collapsed ? 'lg:w-13' : 'lg:w-48',
           )}
         >
-          <ul className="flex flex-col gap-0.5 p-2">
-            {NAV.map(({ to, label, icon: Icon, ...rest }) => (
+          <ul className="flex flex-col py-1.5">
+            {NAV.map(({ to, label, icon: Icon }) => (
               <li key={to}>
                 <NavLink
                   to={to}
-                  end={'end' in rest ? rest.end : undefined}
-                  title={collapsed ? label : undefined}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex h-8 items-center gap-2.5 rounded px-2.5 text-sm cursor-pointer',
-                      'transition-colors',
-                      isActive
-                        ? 'bg-elevated text-fg font-medium'
-                        : 'text-muted hover:bg-elevated/60 hover:text-fg',
-                    )
-                  }
+                  title={label}
+                  className={itemClass}
                 >
                   <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                  {!collapsed && <span className="truncate">{label}</span>}
+                  <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
+                    {label}
+                  </span>
                 </NavLink>
               </li>
             ))}
           </ul>
 
-          <div className="flex flex-col gap-0.5 border-t border-border p-2">
-            <NavLink
-              to="/settings"
-              title={collapsed ? 'Settings' : undefined}
-              className={({ isActive }) =>
-                cn(
-                  'flex h-8 items-center gap-2.5 rounded px-2.5 text-sm cursor-pointer transition-colors',
-                  isActive
-                    ? 'bg-elevated text-fg font-medium'
-                    : 'text-muted hover:bg-elevated/60 hover:text-fg',
-                )
-              }
-            >
+          <div className="flex flex-col border-t border-border py-1.5">
+            <NavLink to="/settings" title="Settings" className={itemClass}>
               <Settings className="h-4 w-4 shrink-0" aria-hidden />
-              {!collapsed && <span>Settings</span>}
+              <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
+                Settings
+              </span>
             </NavLink>
             <button
               onClick={toggleSidebar}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="flex h-8 items-center gap-2.5 rounded px-2.5 text-sm text-muted
-                         cursor-pointer transition-colors hover:bg-elevated/60 hover:text-fg"
+              aria-pressed={collapsed}
+              className={cn(
+                ITEM,
+                'hidden border-transparent text-2xs font-medium uppercase tracking-[0.1em]',
+                'text-muted hover:bg-elevated hover:text-fg lg:flex',
+              )}
             >
               {collapsed ? (
                 <PanelLeftOpen className="h-4 w-4 shrink-0" aria-hidden />
               ) : (
                 <PanelLeftClose className="h-4 w-4 shrink-0" aria-hidden />
               )}
-              {!collapsed && <span>Collapse</span>}
+              <span className={cn(collapsed ? 'lg:hidden' : 'hidden lg:inline')}>Collapse</span>
             </button>
           </div>
         </nav>
 
-        <main className="min-w-0 flex-1 overflow-hidden">
+        <main id="workspace" className="min-w-0 flex-1 overflow-hidden">
+          {/* Route changes are otherwise silent for screen-reader users. */}
+          <div aria-live="polite" className="sr-only">
+            {routeName}
+          </div>
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center">
@@ -132,20 +160,14 @@ function TopBar() {
 
   const signOut = () => {
     tokens.clear()
-    navigate('/login', { replace: true })
+    navigate('/', { replace: true })
   }
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
+    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border-strong bg-surface px-3">
       <div className="flex items-center gap-2 pr-1">
-        <div
-          className="grid h-6 w-6 place-items-center rounded bg-accent text-accent-fg
-                     font-mono text-2xs font-semibold"
-          aria-hidden
-        >
-          DB
-        </div>
-        <span className="text-sm font-medium tracking-tight">Copilot</span>
+        <div className="h-3 w-3 shrink-0 bg-accent" aria-hidden />
+        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-fg">Copilot</span>
       </div>
 
       <div className="h-5 w-px bg-border" aria-hidden />
@@ -159,7 +181,7 @@ function TopBar() {
         variant="ghost"
         onClick={cycleTheme}
         title={`Theme: ${theme}`}
-        aria-label={`Theme: ${theme}. Click to change.`}
+        aria-label={`Theme: ${theme}. Activate to change.`}
       >
         <ThemeIcon className="h-4 w-4" aria-hidden />
       </Button>

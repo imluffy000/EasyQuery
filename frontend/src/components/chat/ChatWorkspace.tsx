@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { CornerDownLeft, Database, PanelRightOpen, Square } from 'lucide-react'
 
@@ -8,7 +9,7 @@ import { ChartView } from '@/components/result/ChartView'
 import { ResultTable } from '@/components/result/ResultTable'
 import { Button, EmptyState, ErrorState } from '@/components/ui'
 import { ApiRequestError, streamChat } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, formatDuration, formatNumber } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 import type { ChatResponse, StreamEventName } from '@/types/api'
 
@@ -32,11 +33,28 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
   const workspaceId = useAppStore((s) => s.workspaceId)
   const databaseId = useAppStore((s) => s.databaseId)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [detailsFor, setDetailsFor] = useState<ChatResponse | null>(null)
+
+  /** Dismiss a pending cost confirmation. The Cancel button on a
+   *  "this may scan a lot of data" warning must not be a no-op. */
+  const cancelConfirmation = useCallback((turnId: string) => {
+    setTurns((prev) =>
+      prev.map((t) =>
+        t.id === turnId && t.response
+          ? {
+              ...t,
+              response: { ...t.response, awaiting_confirmation: false },
+              error: 'Cancelled before running. The query was not executed.',
+            }
+          : t,
+      ),
+    )
+  }, [])
 
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -47,6 +65,14 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [turns])
+
+  // Grow the composer with its content up to the max-height cap.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [input])
 
   const ask = useCallback(
     async (
@@ -132,7 +158,7 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
         title="No database selected"
         description="Connect a PostgreSQL or Supabase database to start asking questions about your data."
         action={
-          <Button variant="primary" onClick={() => (window.location.href = '/databases')}>
+          <Button variant="primary" onClick={() => navigate('/databases')}>
             Connect database
           </Button>
         }
@@ -140,8 +166,33 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
     )
   }
 
+  // A screen-reader user otherwise gets no signal that the query finished,
+  // how many rows came back, or that it failed. The region is mounted for the
+  // life of the workspace: content inserted together with its own live region
+  // is generally not announced.
+  const last = turns[turns.length - 1]
+  const liveStatus = !last
+    ? ''
+    : last.error
+      ? `Query failed. ${last.error}`
+      : last.streaming
+        ? 'Working on the query.'
+        : last.response?.awaiting_clarification
+          ? 'A clarification is needed before the query can run.'
+          : last.response?.awaiting_confirmation
+            ? 'This query needs confirmation before running.'
+            : last.response?.result
+              ? `Answer ready. ${formatNumber(last.response.result.row_count)} rows in ${formatDuration(last.response.result.duration_ms)}.`
+              : last.response
+                ? 'Answer ready.'
+                : ''
+
   return (
     <div className="flex h-full">
+      <h1 className="sr-only">Chat</h1>
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveStatus}
+      </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-4xl px-5 py-5">
@@ -156,7 +207,7 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
                     <li key={example}>
                       <button
                         onClick={() => void ask(example)}
-                        className="w-full rounded border border-border bg-surface px-3 py-2
+                        className="w-full border border-border bg-surface px-3 py-2
                                    text-left text-xs text-muted cursor-pointer transition-colors
                                    hover:border-border-strong hover:text-fg"
                       >
@@ -179,6 +230,7 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
                   }
                   onApprove={() => void ask(turn.question, { approveExpensive: true })}
                   onShowDetails={setDetailsFor}
+                  onCancelConfirm={() => cancelConfirmation(turn.id)}
                 />
               ))}
             </div>
@@ -238,12 +290,14 @@ function TurnView({
   onClarify,
   onApprove,
   onShowDetails,
+  onCancelConfirm,
 }: {
   turn: Turn
   canOverrideCost: boolean
   onClarify: (answer: string) => void
   onApprove: () => void
   onShowDetails: (response: ChatResponse) => void
+  onCancelConfirm: () => void
 }) {
   const response = turn.response
 
@@ -269,7 +323,7 @@ function TurnView({
                 cost={response.cost}
                 canOverride={canOverrideCost}
                 onApprove={onApprove}
-                onCancel={() => undefined}
+                onCancel={onCancelConfirm}
               />
             ) : (
               <>
@@ -290,7 +344,7 @@ function TurnView({
                     </div>
                   )}
 
-                {response.result && response.result.row_count > 0 && (
+                {response.result && (
                   <div className="mt-3">
                     <ResultTable result={response.result} className="max-h-80" />
                   </div>

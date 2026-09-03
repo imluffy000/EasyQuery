@@ -6,13 +6,12 @@
  * to see exactly what ran (spec section 4).
  */
 
-import { useState } from 'react'
-import Editor from '@monaco-editor/react'
+import { useEffect, useState } from 'react'
+import Editor, { type Monaco } from '@monaco-editor/react'
 import { Check, Copy, X } from 'lucide-react'
 
 import { Badge, Button } from '@/components/ui'
 import { cn, formatDuration, formatNumber } from '@/lib/utils'
-import { useAppStore } from '@/stores/useAppStore'
 import type { ChatResponse } from '@/types/api'
 
 export function SqlViewer({
@@ -20,29 +19,64 @@ export function SqlViewer({
   height = 160,
   onChange,
   readOnly = true,
+  ariaLabel = 'SQL',
 }: {
   sql: string
   height?: number
   onChange?: (value: string) => void
   readOnly?: boolean
+  ariaLabel?: string
 }) {
-  const theme = useAppStore((s) => s.theme)
-  const isDark =
-    theme === 'dark' ||
-    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  // Monaco's stock vs-dark is a neutral grey (#1e1e1e) that reads as a colder
+  // surface than every panel around it. Paint the editor from the same tokens
+  // as the rest of the app, and re-read them when the theme changes.
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+
+  useEffect(() => {
+    const update = () => setDark(document.documentElement.classList.contains('dark'))
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
+  const defineTheme = (monaco: Monaco) => {
+    const css = getComputedStyle(document.documentElement)
+    const hex = (name: string) => {
+      const [r, g, b] = css.getPropertyValue(name).trim().split(/\s+/).map(Number)
+      return `#${[r, g, b].map((n) => (n ?? 0).toString(16).padStart(2, '0')).join('')}`
+    }
+    monaco.editor.defineTheme('instrument', {
+      base: dark ? 'vs-dark' : 'vs',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': hex('--surface'),
+        'editor.foreground': hex('--fg'),
+        'editorLineNumber.foreground': hex('--subtle'),
+        'editorLineNumber.activeForeground': hex('--muted'),
+        'editor.lineHighlightBackground': hex('--elevated'),
+        'editorGutter.background': hex('--surface'),
+        'editorCursor.foreground': hex('--accent'),
+      },
+    })
+    monaco.editor.setTheme('instrument')
+  }
 
   return (
     <Editor
       height={height}
       language="sql"
       value={sql}
-      theme={isDark ? 'vs-dark' : 'vs'}
+      theme={dark ? 'vs-dark' : 'vs'}
+      beforeMount={defineTheme}
       onChange={(v) => onChange?.(v ?? '')}
       options={{
         readOnly,
+        ariaLabel,
         minimap: { enabled: false },
         fontSize: 12,
-        fontFamily: '"JetBrains Mono", monospace',
+        fontFamily: '"Fira Code", monospace',
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
         renderLineHighlight: readOnly ? 'none' : 'line',
@@ -91,7 +125,7 @@ export function SqlDisclosure({ response }: { response: ChatResponse }) {
   const current = tab === 'executed' ? executed || generated : generated
 
   return (
-    <div className="mt-2 overflow-hidden rounded border border-border bg-surface">
+    <div className="mt-2 overflow-hidden border border-border bg-surface">
       <div className="flex h-8 items-center gap-1 border-b border-border px-1.5">
         <button
           onClick={() => setOpen((v) => !v)}
@@ -108,9 +142,12 @@ export function SqlDisclosure({ response }: { response: ChatResponse }) {
               <button
                 key={key}
                 onClick={() => setTab(key)}
+                aria-pressed={tab === key}
                 className={cn(
-                  'rounded px-1.5 py-0.5 text-2xs cursor-pointer transition-colors',
-                  tab === key ? 'bg-elevated text-fg' : 'text-subtle hover:text-fg',
+                  'border-b-2 px-1.5 py-0.5 text-2xs uppercase tracking-[0.08em] cursor-pointer transition-colors',
+                  tab === key
+                    ? 'border-accent text-fg'
+                    : 'border-transparent text-subtle hover:text-fg',
                 )}
               >
                 {key === 'executed' ? 'Executed' : 'Generated'}
@@ -179,7 +216,9 @@ export function QueryDetailsDrawer({
 
   return (
     <aside
-      className="flex w-96 shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col overflow-hidden
+                 border-l border-border-strong bg-surface shadow-popover
+                 lg:static lg:z-auto lg:w-96 lg:max-w-none lg:shrink-0 lg:shadow-none"
       aria-label="Query details"
     >
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
@@ -235,7 +274,7 @@ export function QueryDetailsDrawer({
           <section>
             <h3 className="mb-1.5 text-2xs uppercase tracking-wide text-subtle">Errors</h3>
             {response.errors.map((e, i) => (
-              <div key={i} className="mb-1.5 rounded border border-danger/30 bg-danger/5 p-2">
+              <div key={i} className="mb-1.5 border border-danger/30 bg-danger/5 p-2">
                 <p className="font-mono text-2xs text-danger">
                   {e.stage} · {e.code}
                 </p>
