@@ -53,11 +53,20 @@ export function formatRelative(iso: string | null | undefined): string {
   return rtf.format(-Math.round(seconds / 31557600), 'year')
 }
 
-/** Render a database value for a table cell without throwing on odd types. */
+/**
+ * Render a database value for a table cell without throwing on odd types.
+ *
+ * Numbers are NOT passed through Intl.NumberFormat here. Its defaults round
+ * to three fraction digits and add grouping, which silently rewrites the
+ * data: 0.00004 renders as "0" and a year 2024 renders as "2,024". A cell in
+ * a SQL result must show what the database returned. `formatNumber` stays
+ * available for stat tiles, where rounding is wanted.
+ */
 export function formatCell(value: unknown): string {
   if (value === null || value === undefined) return 'NULL'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (typeof value === 'number') return NUMBER.format(value)
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }
