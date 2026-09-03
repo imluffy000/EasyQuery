@@ -1,30 +1,42 @@
-"""Authentication: password hashing and JWT issue/verify."""
+"""Authentication: password hashing and JWT issue/verify.
+
+Uses the `bcrypt` package directly rather than passlib: passlib 1.7.4 is
+unmaintained and its bcrypt backend breaks on bcrypt >= 4.1
+(`module 'bcrypt' has no attribute '__about__'`).
+"""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config.settings import Settings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 TokenType = Literal["access", "refresh"]
+
+# bcrypt silently truncates input at 72 bytes, which would make two long
+# passwords sharing a 72-byte prefix equivalent. Pre-hashing to a fixed-length
+# digest removes the truncation entirely.
+def _prepare(password: str) -> bytes:
+    digest = hashlib.sha256(password.encode("utf-8")).digest()
+    return base64.b64encode(digest)
 
 
 def hash_password(password: str) -> str:
-    return _pwd_context.hash(password)
+    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _pwd_context.verify(plain, hashed)
-    except ValueError:
+        return bcrypt.checkpw(_prepare(plain), hashed.encode("ascii"))
+    except (ValueError, TypeError):
         # Malformed stored hash -- treat as a failed login, never as success.
         return False
 

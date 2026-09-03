@@ -14,7 +14,10 @@ FROM python:3.12-slim AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
-RUN groupadd -r app && useradd -r -g app app
+# -m creates the home directory: gunicorn's control server writes there, and
+# without it every boot logs "Permission denied: '/home/app'".
+RUN groupadd -r app && useradd -r -g app -m -d /home/app app
+ENV HOME=/home/app
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app . .

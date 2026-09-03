@@ -8,10 +8,10 @@ guessable key (see `validate_production`).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "staging", "production"]
 
@@ -62,7 +62,12 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = 4096
 
     # --- HTTP ----------------------------------------------------------------
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    # NoDecode stops pydantic-settings from JSON-parsing the env var before the
+    # validator below runs, so a plain comma-separated list works:
+    #   CORS_ORIGINS=http://localhost:5173,https://app.example.com
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
 
     # --- Guardrails ----------------------------------------------------------
     query: QueryLimits = Field(default_factory=QueryLimits)
@@ -80,7 +85,13 @@ class Settings(BaseSettings):
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
+            # Accept a JSON array too, so both styles work in a .env file.
+            text = v.strip()
+            if text.startswith("["):
+                import json
+
+                return json.loads(text)
+            return [o.strip() for o in text.split(",") if o.strip()]
         return v
 
     @property
