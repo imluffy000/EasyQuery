@@ -125,10 +125,14 @@ class SchemaService:
 
     async def load_candidates(self, database_id: uuid.UUID) -> list[TableCandidate]:
         rows = (
-            await self.session.execute(
-                select(DatabaseTable).where(DatabaseTable.database_id == database_id)
+            (
+                await self.session.execute(
+                    select(DatabaseTable).where(DatabaseTable.database_id == database_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         return [
             TableCandidate(
@@ -146,12 +150,18 @@ class SchemaService:
 
     async def load_glossary(self, database_id: uuid.UUID) -> dict[str, str]:
         rows = (
-            await self.session.execute(
-                select(GlossaryTerm).where(GlossaryTerm.database_id == database_id)
+            (
+                await self.session.execute(
+                    select(GlossaryTerm).where(GlossaryTerm.database_id == database_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {
-            row.term: (f"{row.definition} (maps to {row.maps_to})" if row.maps_to else row.definition)
+            row.term: (
+                f"{row.definition} (maps to {row.maps_to})" if row.maps_to else row.definition
+            )
             for row in rows
         }
 
@@ -171,9 +181,7 @@ class SchemaService:
             return ("", [], glossary)
 
         engine = retriever or SchemaRetriever()
-        selected = await engine.retrieve(
-            question, candidates, glossary=glossary, pinned=pinned
-        )
+        selected = await engine.retrieve(question, candidates, glossary=glossary, pinned=pinned)
         context = render_schema_context([c.to_context_dict() for c in selected])
         return (context, [c.qualified_name for c in selected], glossary)
 
@@ -195,7 +203,5 @@ class SchemaService:
                 }
             )
         return {
-            "schemas": [
-                {"name": name, "tables": tables} for name, tables in sorted(tree.items())
-            ]
+            "schemas": [{"name": name, "tables": tables} for name, tables in sorted(tree.items())]
         }

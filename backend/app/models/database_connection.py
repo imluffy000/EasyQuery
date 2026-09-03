@@ -104,12 +104,8 @@ class DatabaseTable(UUIDPrimaryKey, Timestamps, Base):
 
     # Denormalised structure, kept as JSONB so schema retrieval is one row read
     # rather than a three-way join per candidate table.
-    columns: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list
-    )
-    foreign_keys: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list
-    )
+    columns: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    foreign_keys: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     indexes: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
 
     # Text used to build the retrieval embedding.
@@ -131,9 +127,7 @@ class GlossaryTerm(UUIDPrimaryKey, Timestamps, Base):
     """
 
     __tablename__ = "business_glossary"
-    __table_args__ = (
-        UniqueConstraint("database_id", "term", name="database_id_term"),
-    )
+    __table_args__ = (UniqueConstraint("database_id", "term", name="database_id_term"),)
 
     database_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),

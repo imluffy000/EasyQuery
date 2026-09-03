@@ -26,7 +26,9 @@ PG_PORT = int(os.getenv("TEST_PG_PORT", "5432"))
 pytestmark = pytest.mark.integration
 
 
-def make_config(*, user: str = "copilot", password: str = "copilot_dev_password") -> ConnectionConfig:
+def make_config(
+    *, user: str = "copilot", password: str = "copilot_dev_password"
+) -> ConnectionConfig:
     return ConnectionConfig(
         engine=Engine.POSTGRES,
         host=PG_HOST,
@@ -113,7 +115,9 @@ async def test_row_limit_is_enforced(connector: PostgresConnector) -> None:
 
 
 async def test_explain_reports_cost(connector: PostgresConnector) -> None:
-    explain = await connector.explain("SELECT * FROM orders WHERE created_at > now() - interval '30 days'")
+    explain = await connector.explain(
+        "SELECT * FROM orders WHERE created_at > now() - interval '30 days'"
+    )
     assert explain.total_cost > 0
     assert "orders" in explain.scanned_relations
 
@@ -126,9 +130,7 @@ async def test_read_only_transaction_blocks_writes(connector: PostgresConnector)
 
 async def test_readonly_role_cannot_write() -> None:
     """The database-level layer, independent of the application guard."""
-    c = PostgresConnector(
-        make_config(user="copilot_readonly", password="copilot_readonly_pw")
-    )
+    c = PostgresConnector(make_config(user="copilot_readonly", password="copilot_readonly_pw"))
     await c.connect()
     try:
         ok = await c.execute("SELECT count(*) AS n FROM orders")
@@ -142,9 +144,7 @@ async def test_readonly_role_cannot_write() -> None:
 
 async def test_statement_timeout_fires() -> None:
     """A long query is stopped by PostgreSQL, not left to run."""
-    config = ConnectionConfig(
-        **{**make_config().__dict__, "statement_timeout_seconds": 1}
-    )
+    config = ConnectionConfig(**{**make_config().__dict__, "statement_timeout_seconds": 1})
     c = PostgresConnector(config)
     await c.connect()
     try:

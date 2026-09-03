@@ -74,9 +74,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         headers.setdefault("X-Content-Type-Options", "nosniff")
         headers.setdefault("X-Frame-Options", "DENY")
         headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        headers.setdefault(
-            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
-        )
+        headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
         # The API serves JSON only; nothing should ever be framed or scripted
         # from this origin.
         headers.setdefault(
@@ -84,9 +82,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
         )
         if self.enable_hsts:
-            headers.setdefault(
-                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-            )
+            headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
 
@@ -123,9 +119,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("authorization", "")
         client_host = request.client.host if request.client else "unknown"
         # Hash the token so a credential never becomes a Redis key.
-        identity = (
-            f"t:{hash(auth) & 0xFFFFFFFF:x}" if auth else f"ip:{client_host}"
-        )
+        identity = f"t:{hash(auth) & 0xFFFFFFFF:x}" if auth else f"ip:{client_host}"
         window = int(time.time() // 60)
         key = f"ratelimit:{identity}:{window}"
 
@@ -145,9 +139,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 content={
                     "error": {
                         "code": "RATE_LIMITED",
-                        "message": (
-                            f"Too many requests. The limit is {self.limit} per minute."
-                        ),
+                        "message": (f"Too many requests. The limit is {self.limit} per minute."),
                         "request_id": getattr(request.state, "request_id", None),
                     }
                 },

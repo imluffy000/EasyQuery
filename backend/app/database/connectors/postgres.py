@@ -13,7 +13,6 @@ Defence in depth for every user query:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import ssl
@@ -210,7 +209,7 @@ class PostgresConnector(DatabaseConnector):
             raise ConnectorError(
                 f"Database '{self.config.database}' does not exist.", code="DB_NOT_FOUND"
             ) from exc
-        except (OSError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, OSError) as exc:
             raise ConnectorError(
                 f"Could not reach {self.config.host}:{self.config.port}.",
                 code="DB_UNREACHABLE",
@@ -353,7 +352,7 @@ class PostgresConnector(DatabaseConnector):
                     records = await conn.fetch(sql, timeout=timeout)
                 finally:
                     await tx.rollback()
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise QueryTimeout(timeout) from exc
         except asyncpg.QueryCanceledError as exc:
             raise QueryTimeout(timeout) from exc
@@ -388,7 +387,9 @@ class PostgresConnector(DatabaseConnector):
     async def explain(self, sql: str) -> ExplainResult:
         await self.connect()
         pool = self._require_pool()
-        statement = sql if sql.strip().upper().startswith("EXPLAIN") else f"EXPLAIN (FORMAT JSON) {sql}"
+        statement = (
+            sql if sql.strip().upper().startswith("EXPLAIN") else f"EXPLAIN (FORMAT JSON) {sql}"
+        )
 
         try:
             async with pool.acquire() as conn:
@@ -459,7 +460,8 @@ def _normalise_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     import decimal
     import ipaddress
     import uuid as _uuid
-    from datetime import date, time as _time, timedelta
+    from datetime import date, timedelta
+    from datetime import time as _time
 
     def convert(value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):

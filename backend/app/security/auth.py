@@ -21,6 +21,7 @@ from app.config.settings import Settings
 
 TokenType = Literal["access", "refresh"]
 
+
 # bcrypt silently truncates input at 72 bytes, which would make two long
 # passwords sharing a 72-byte prefix equivalent. Pre-hashing to a fixed-length
 # digest removes the truncation entirely.

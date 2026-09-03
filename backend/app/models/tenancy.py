@@ -70,9 +70,7 @@ class OrganizationMember(UUIDPrimaryKey, Timestamps, Base):
 
 class Workspace(UUIDPrimaryKey, Timestamps, Base):
     __tablename__ = "workspaces"
-    __table_args__ = (
-        UniqueConstraint("organization_id", "slug", name="organization_id_slug"),
-    )
+    __table_args__ = (UniqueConstraint("organization_id", "slug", name="organization_id_slug"),)
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False

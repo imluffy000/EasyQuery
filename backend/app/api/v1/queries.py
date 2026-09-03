@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query as QueryParam, status
+from fastapi import APIRouter, HTTPException, status
+from fastapi import Query as QueryParam
 from sqlalchemy import select
 
 from app.api.deps import SessionDep, SettingsDep, WorkspaceDep
@@ -46,10 +47,10 @@ async def query_history(
         stmt = stmt.where(Query.database_id == database_id)
 
     rows = (
-        await session.execute(
-            stmt.order_by(Query.created_at.desc()).limit(limit).offset(offset)
-        )
-    ).scalars().all()
+        (await session.execute(stmt.order_by(Query.created_at.desc()).limit(limit).offset(offset)))
+        .scalars()
+        .all()
+    )
     return [QueryOut.model_validate(r) for r in rows]
 
 
@@ -60,9 +61,7 @@ async def query_detail(
     context.require(Permission.VIEW_RESULTS)
     record = (
         await session.execute(
-            select(Query).where(
-                Query.id == query_id, Query.workspace_id == context.workspace.id
-            )
+            select(Query).where(Query.id == query_id, Query.workspace_id == context.workspace.id)
         )
     ).scalar_one_or_none()
     if record is None:
@@ -125,18 +124,20 @@ async def validate_sql(
 async def list_saved(context: WorkspaceDep, session: SessionDep) -> list[SavedQueryOut]:
     context.require(Permission.VIEW_RESULTS)
     rows = (
-        await session.execute(
-            select(SavedQuery)
-            .where(SavedQuery.workspace_id == context.workspace.id)
-            .order_by(SavedQuery.created_at.desc())
+        (
+            await session.execute(
+                select(SavedQuery)
+                .where(SavedQuery.workspace_id == context.workspace.id)
+                .order_by(SavedQuery.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [SavedQueryOut.model_validate(r) for r in rows]
 
 
-@router.post(
-    "/saved-queries", response_model=SavedQueryOut, status_code=status.HTTP_201_CREATED
-)
+@router.post("/saved-queries", response_model=SavedQueryOut, status_code=status.HTTP_201_CREATED)
 async def create_saved(
     payload: SavedQueryCreate,
     context: WorkspaceDep,
@@ -173,9 +174,7 @@ async def create_saved(
 
 
 @router.delete("/saved-queries/{saved_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_saved(
-    saved_id: uuid.UUID, context: WorkspaceDep, session: SessionDep
-) -> None:
+async def delete_saved(saved_id: uuid.UUID, context: WorkspaceDep, session: SessionDep) -> None:
     context.require(Permission.SAVE_QUERY)
     saved = (
         await session.execute(

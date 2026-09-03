@@ -14,7 +14,6 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-
 # --- structured node outputs ------------------------------------------------
 
 

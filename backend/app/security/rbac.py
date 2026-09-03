@@ -92,12 +92,11 @@ def has_permission(role: Role | str, permission: Permission) -> bool:
 def require_permission(role: Role | str, permission: Permission) -> None:
     """Raise 403 unless the role carries the permission."""
     if not has_permission(role, permission):
+        action = permission.value.replace("_", " ")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "PERMISSION_DENIED",
-                "message": (
-                    f"Role '{role}' does not have permission to {permission.value.replace('_', ' ')}."
-                ),
+                "message": f"Role '{role}' does not have permission to {action}.",
             },
         )

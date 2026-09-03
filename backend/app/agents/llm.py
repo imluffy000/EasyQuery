@@ -173,9 +173,7 @@ class AnthropicProvider(LLMProvider):
         super().__init__(model=model, **kwargs)
         self._api_key = api_key
 
-    async def generate(
-        self, *, system: str, prompt: str, temperature: float = 0.0
-    ) -> LLMResponse:
+    async def generate(self, *, system: str, prompt: str, temperature: float = 0.0) -> LLMResponse:
         import time
 
         started = time.perf_counter()
@@ -205,9 +203,7 @@ class AnthropicProvider(LLMProvider):
         if response.status_code == 429:
             raise LLMError("Model rate limit reached.", code="LLM_RATE_LIMITED")
         if response.status_code >= 400:
-            raise LLMError(
-                f"Model returned {response.status_code}.", code="LLM_ERROR"
-            )
+            raise LLMError(f"Model returned {response.status_code}.", code="LLM_ERROR")
 
         body = response.json()
         text = "".join(block.get("text", "") for block in body.get("content", []))
@@ -234,9 +230,7 @@ class OpenAIProvider(LLMProvider):
         super().__init__(model=model, **kwargs)
         self._api_key = api_key
 
-    async def generate(
-        self, *, system: str, prompt: str, temperature: float = 0.0
-    ) -> LLMResponse:
+    async def generate(self, *, system: str, prompt: str, temperature: float = 0.0) -> LLMResponse:
         import time
 
         started = time.perf_counter()
@@ -310,9 +304,7 @@ class EchoProvider(LLMProvider):
         self.correction_sql = correction_sql or sql
         self.calls: list[tuple[str, str]] = []
 
-    async def generate(
-        self, *, system: str, prompt: str, temperature: float = 0.0
-    ) -> LLMResponse:
+    async def generate(self, *, system: str, prompt: str, temperature: float = 0.0) -> LLMResponse:
         self.calls.append((system, prompt))
         return LLMResponse(
             text=json.dumps(self._respond(system, prompt)),
@@ -360,7 +352,11 @@ class EchoProvider(LLMProvider):
 
 
 def build_provider(
-    *, provider: str, model: str, api_key: str | None, timeout_seconds: int = 60,
+    *,
+    provider: str,
+    model: str,
+    api_key: str | None,
+    timeout_seconds: int = 60,
     max_tokens: int = 4096,
 ) -> LLMProvider:
     """Construct the configured provider. Unknown names fail fast."""
@@ -369,14 +365,18 @@ def build_provider(
             if not api_key:
                 raise ValueError("LLM_API_KEY is required for the anthropic provider.")
             return AnthropicProvider(
-                api_key=api_key, model=model, timeout_seconds=timeout_seconds,
+                api_key=api_key,
+                model=model,
+                timeout_seconds=timeout_seconds,
                 max_tokens=max_tokens,
             )
         case "openai":
             if not api_key:
                 raise ValueError("LLM_API_KEY is required for the openai provider.")
             return OpenAIProvider(
-                api_key=api_key, model=model, timeout_seconds=timeout_seconds,
+                api_key=api_key,
+                model=model,
+                timeout_seconds=timeout_seconds,
                 max_tokens=max_tokens,
             )
         case "echo":

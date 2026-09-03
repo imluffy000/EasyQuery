@@ -48,9 +48,7 @@ def _redact_value(value: Any) -> Any:
     return value
 
 
-def redact_processor(
-    _logger: Any, _method: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+def redact_processor(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_KEYS:
             event_dict[key] = "[redacted]"
@@ -80,9 +78,7 @@ def configure_logging(*, level: str = "INFO", json_output: bool = True) -> None:
 
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, level.upper(), 20)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level.upper(), 20)),
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )

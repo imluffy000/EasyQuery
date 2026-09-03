@@ -140,12 +140,7 @@ def test_cte_name_is_not_treated_as_schema(guard: SQLGuard) -> None:
 
 def test_blocks_excessive_joins() -> None:
     g = build_guard(max_joins=2)
-    sql = (
-        "SELECT * FROM a "
-        "JOIN b ON b.id = a.id "
-        "JOIN c ON c.id = a.id "
-        "JOIN d ON d.id = a.id"
-    )
+    sql = "SELECT * FROM a JOIN b ON b.id = a.id JOIN c ON c.id = a.id JOIN d ON d.id = a.id"
     result = g.validate(sql)
     assert not result.ok
     assert GuardViolation.TOO_MANY_JOINS.value in result.error_codes

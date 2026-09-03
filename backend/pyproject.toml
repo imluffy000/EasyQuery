@@ -54,10 +54,24 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "S", "ASYNC"]
+# S101: pytest needs bare assert. B008: FastAPI's Depends() in defaults is the
+# documented idiom, not a mutable-default bug.
 ignore = ["S101", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "N"]
+# S105/S106/S107 fire on the literal "access"/"refresh" passed as `token_type`.
+# That names a token *kind*, not a secret; the real secret is JWT_SECRET, which
+# is never a literal anywhere.
+"app/security/auth.py" = ["S105", "S106", "S107"]
+"app/api/v1/auth.py" = ["S106"]
+"app/schemas/api.py" = ["S105"]
+# N818 wants an "Error" suffix on exceptions. QueryTimeout and PermissionDenied
+# read better at call sites and are already unambiguous as exception types.
+"app/database/connectors/base.py" = ["N818"]
+# The evaluation harness embeds the local demo database credentials by design;
+# they are the same values committed in docker-compose.yml.
+"evaluation/*" = ["S106"]
 
 [tool.mypy]
 python_version = "3.12"

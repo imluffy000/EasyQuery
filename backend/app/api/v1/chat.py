@@ -146,13 +146,17 @@ async def list_conversations(
 ) -> list[ConversationOut]:
     context.require(Permission.VIEW_RESULTS)
     rows = (
-        await session.execute(
-            select(Conversation)
-            .where(Conversation.workspace_id == context.workspace.id)
-            .order_by(Conversation.updated_at.desc())
-            .limit(min(limit, 200))
+        (
+            await session.execute(
+                select(Conversation)
+                .where(Conversation.workspace_id == context.workspace.id)
+                .order_by(Conversation.updated_at.desc())
+                .limit(min(limit, 200))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [ConversationOut.model_validate(r) for r in rows]
 
 

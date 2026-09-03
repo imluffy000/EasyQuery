@@ -14,7 +14,6 @@ from app.api.deps import (
     DatabaseDep,
     ManagerDep,
     SessionDep,
-    SettingsDep,
     WorkspaceDep,
 )
 from app.database.connectors.base import (
@@ -59,17 +58,19 @@ async def list_engines(context: WorkspaceDep) -> list[str]:
 
 
 @router.get("/databases", response_model=list[DatabaseConnectionOut])
-async def list_databases(
-    context: WorkspaceDep, session: SessionDep
-) -> list[DatabaseConnectionOut]:
+async def list_databases(context: WorkspaceDep, session: SessionDep) -> list[DatabaseConnectionOut]:
     context.require(Permission.VIEW_SCHEMA)
     rows = (
-        await session.execute(
-            select(DatabaseConnection)
-            .where(DatabaseConnection.workspace_id == context.workspace.id)
-            .order_by(DatabaseConnection.created_at.desc())
+        (
+            await session.execute(
+                select(DatabaseConnection)
+                .where(DatabaseConnection.workspace_id == context.workspace.id)
+                .order_by(DatabaseConnection.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [DatabaseConnectionOut.model_validate(r) for r in rows]
 
 
@@ -122,9 +123,7 @@ async def create_database(
 
 
 @router.get("/databases/{database_id}", response_model=DatabaseConnectionOut)
-async def get_database(
-    connection: DatabaseDep, context: WorkspaceDep
-) -> DatabaseConnectionOut:
+async def get_database(connection: DatabaseDep, context: WorkspaceDep) -> DatabaseConnectionOut:
     context.require(Permission.VIEW_SCHEMA)
     return DatabaseConnectionOut.model_validate(connection)
 
@@ -307,12 +306,16 @@ async def list_glossary(
 ) -> list[GlossaryTermOut]:
     context.require(Permission.VIEW_SCHEMA)
     rows = (
-        await session.execute(
-            select(GlossaryTerm)
-            .where(GlossaryTerm.database_id == connection.id)
-            .order_by(GlossaryTerm.term)
+        (
+            await session.execute(
+                select(GlossaryTerm)
+                .where(GlossaryTerm.database_id == connection.id)
+                .order_by(GlossaryTerm.term)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [GlossaryTermOut.model_validate(r) for r in rows]
 
 

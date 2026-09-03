@@ -232,9 +232,7 @@ def _grade(case: EvalCase, state, expected, latency: int, selected) -> CaseResul
     validated = bool(state.get("validated_sql"))
 
     retrieved = {c.qualified_name for c in selected}
-    tables_hit = (
-        all(t in retrieved for t in case.expected_tables) if case.expected_tables else True
-    )
+    tables_hit = all(t in retrieved for t in case.expected_tables) if case.expected_tables else True
 
     result = CaseResult(
         case=case,

@@ -142,9 +142,7 @@ class ChatService:
         await self._record_assistant_message(conversation, final, query)
         await self._audit(request, connection, final, query)
 
-        return ChatOutcome(
-            conversation_id=conversation.id, query_id=query.id, state=final
-        )
+        return ChatOutcome(conversation_id=conversation.id, query_id=query.id, state=final)
 
     async def stream(
         self,
@@ -167,9 +165,7 @@ class ChatService:
                 await queue.put(("result", _serialise_outcome(outcome)))
             except Exception as exc:  # noqa: BLE001 - surfaced as an error event
                 log.exception("chat_stream_failed")
-                await queue.put(
-                    ("error", {"code": "INTERNAL_ERROR", "message": str(exc)[:200]})
-                )
+                await queue.put(("error", {"code": "INTERNAL_ERROR", "message": str(exc)[:200]}))
             finally:
                 await queue.put(None)
 
@@ -214,21 +210,25 @@ class ChatService:
         await self.session.flush()
         return conversation
 
-    async def _recent_turns(self, conversation_id: uuid.UUID, limit: int = 8) -> list[dict[str, str]]:
+    async def _recent_turns(
+        self, conversation_id: uuid.UUID, limit: int = 8
+    ) -> list[dict[str, str]]:
         rows = (
-            await self.session.execute(
-                select(Message)
-                .where(Message.conversation_id == conversation_id)
-                .order_by(Message.created_at.desc())
-                .limit(limit)
+            (
+                await self.session.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id)
+                    .order_by(Message.created_at.desc())
+                    .limit(limit)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return [{"role": m.role, "content": m.content} for m in reversed(rows)]
 
     async def _record_user_message(self, conversation: Conversation, question: str) -> None:
-        self.session.add(
-            Message(conversation_id=conversation.id, role="user", content=question)
-        )
+        self.session.add(Message(conversation_id=conversation.id, role="user", content=question))
         await self.session.flush()
 
     async def _record_assistant_message(

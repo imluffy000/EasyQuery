@@ -79,20 +79,12 @@ async def register(
     await session.flush()
 
     session.add(
-        OrganizationMember(
-            organization_id=organization.id, user_id=user.id, role=Role.OWNER.value
-        )
+        OrganizationMember(organization_id=organization.id, user_id=user.id, role=Role.OWNER.value)
     )
-    workspace = Workspace(
-        organization_id=organization.id, name="Default", slug="default"
-    )
+    workspace = Workspace(organization_id=organization.id, name="Default", slug="default")
     session.add(workspace)
     await session.flush()
-    session.add(
-        WorkspaceMember(
-            workspace_id=workspace.id, user_id=user.id, role=Role.OWNER.value
-        )
-    )
+    session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=Role.OWNER.value))
 
     await audit.record(
         session, event=AuditEvent.USER_LOGGED_IN, user_id=user.id, workspace_id=workspace.id
@@ -139,12 +131,8 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(
-    payload: RefreshRequest, session: SessionDep, settings: SettingsDep
-) -> TokenPair:
-    claims = decode_token(
-        settings=settings, token=payload.refresh_token, expected_type="refresh"
-    )
+async def refresh(payload: RefreshRequest, session: SessionDep, settings: SettingsDep) -> TokenPair:
+    claims = decode_token(settings=settings, token=payload.refresh_token, expected_type="refresh")
     if claims is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

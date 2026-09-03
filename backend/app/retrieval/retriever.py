@@ -212,9 +212,9 @@ class SchemaRetriever:
         # Nothing matched -- fall back to the largest tables rather than
         # returning an empty schema, which would guarantee a wrong answer.
         if not selected:
-            selected = sorted(
-                candidates, key=lambda c: (c.estimated_rows or 0), reverse=True
-            )[: min(3, self.max_tables)]
+            selected = sorted(candidates, key=lambda c: c.estimated_rows or 0, reverse=True)[
+                : min(3, self.max_tables)
+            ]
             for candidate in selected:
                 candidate.included_because = "fallback: no keyword match"
 
@@ -251,9 +251,7 @@ class SchemaRetriever:
 
         return score
 
-    async def _apply_vector_scores(
-        self, question: str, candidates: list[TableCandidate]
-    ) -> None:
+    async def _apply_vector_scores(self, question: str, candidates: list[TableCandidate]) -> None:
         embedded = [c for c in candidates if c.embedding]
         if not embedded or self.embedder is None:
             return

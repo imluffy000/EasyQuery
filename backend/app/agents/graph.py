@@ -30,7 +30,6 @@ from app.agents.prompts import (
     PLANNER_SYSTEM,
     SQL_CORRECTION_SYSTEM,
     SQL_SYSTEM,
-    VISUALIZATION_SYSTEM,
     render_context_block,
 )
 from app.agents.state import (
@@ -195,14 +194,11 @@ def build_graph(deps: PipelineDeps) -> Any:
         try:
             plan, usage = await deps.llm.structured_generate(
                 system=PLANNER_SYSTEM,
-                prompt=f"{context}\n\nQuestion:\n"
-                f"{wrap_untrusted(question, kind=TrustLevel.USER)}",
+                prompt=f"{context}\n\nQuestion:\n{wrap_untrusted(question, kind=TrustLevel.USER)}",
                 schema=QueryPlan,
             )
         except LLMError as exc:
-            return {
-                "errors": [AgentError(stage="planning", code=exc.code, message=exc.message)]
-            }
+            return {"errors": [AgentError(stage="planning", code=exc.code, message=exc.message)]}
         return {"query_plan": plan, **_accumulate(state, usage)}
 
     async def sql_generation(state: AgentState) -> dict[str, Any]:
@@ -226,7 +222,9 @@ def build_graph(deps: PipelineDeps) -> Any:
                 system=SQL_SYSTEM, prompt=prompt, schema=SQLResult
             )
         except LLMError as exc:
-            return {"errors": [AgentError(stage="sql_generation", code=exc.code, message=exc.message)]}
+            return {
+                "errors": [AgentError(stage="sql_generation", code=exc.code, message=exc.message)]
+            }
         return {"generated_sql": result.sql, **_accumulate(state, usage)}
 
     async def sql_validation(state: AgentState) -> dict[str, Any]:
@@ -263,12 +261,16 @@ def build_graph(deps: PipelineDeps) -> Any:
         last = errors[-1] if errors else None
         retry = state.get("retry_count", 0) + 1
 
+        # A database error message can carry attacker-influenced text (a column
+        # name, a quoted value), so it is fenced like any other untrusted input.
+        error_block = wrap_untrusted(last.message if last else "unknown", kind=TrustLevel.TOOL)
+
         prompt = (
             f"Original question:\n"
             f"{wrap_untrusted(state['user_question'], kind=TrustLevel.USER)}\n\n"
             f"Schema:\n{deps.schema_context}\n\n"
             f"SQL that failed:\n{state.get('generated_sql', '')}\n\n"
-            f"Error:\n{wrap_untrusted(last.message if last else 'unknown', kind=TrustLevel.TOOL)}\n\n"
+            f"Error:\n{error_block}\n\n"
             "Return corrected read-only SQL."
         )
         try:
@@ -403,7 +405,10 @@ def build_graph(deps: PipelineDeps) -> Any:
                 pass
 
         await deps.emit(StreamEvent.COMPLETE, {})
-        return {"final_answer": text or _fallback_answer(summary), **_accumulate(state, response.usage)}
+        return {
+            "final_answer": text or _fallback_answer(summary),
+            **_accumulate(state, response.usage),
+        }
 
     # -- routing -------------------------------------------------------------
 
@@ -450,9 +455,7 @@ def build_graph(deps: PipelineDeps) -> Any:
     graph.set_entry_point("intent")
     graph.add_edge("intent", "schema")
     graph.add_edge("schema", "ambiguity")
-    graph.add_conditional_edges(
-        "ambiguity", after_ambiguity, {"plan": "plan", "suspend": END}
-    )
+    graph.add_conditional_edges("ambiguity", after_ambiguity, {"plan": "plan", "suspend": END})
     graph.add_edge("plan", "generate_sql")
     graph.add_edge("generate_sql", "validate_sql")
     graph.add_conditional_edges(

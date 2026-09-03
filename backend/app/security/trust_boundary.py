@@ -35,34 +35,47 @@ _DELIM_FORGERY = re.compile(r"<<<\s*/?\s*(END_)?UNTRUSTED[^>]*>>>", re.IGNORECAS
 class TrustLevel(StrEnum):
     """What a block of text is allowed to influence."""
 
-    SYSTEM = "system"          # our own instructions
-    SCHEMA = "schema"          # table/column names -- structural, semi-trusted
-    USER = "user"              # the person's question
-    DATABASE = "database"      # row values -- fully untrusted
-    TOOL = "tool"              # errors and plans returned by our own tools
+    SYSTEM = "system"  # our own instructions
+    SCHEMA = "schema"  # table/column names -- structural, semi-trusted
+    USER = "user"  # the person's question
+    DATABASE = "database"  # row values -- fully untrusted
+    TOOL = "tool"  # errors and plans returned by our own tools
 
 
 _INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("instruction_override", re.compile(
-        r"\b(ignore|disregard|forget|override)\b.{0,30}\b(previous|prior|above|earlier|all)\b"
-        r".{0,20}\b(instruction|prompt|rule|direction)",
-        re.IGNORECASE | re.DOTALL,
-    )),
-    ("role_switch", re.compile(
-        r"\b(you are now|act as|pretend to be|from now on you)\b", re.IGNORECASE
-    )),
-    ("system_prompt_probe", re.compile(
-        r"\b(system prompt|your instructions|reveal your|print your prompt)\b", re.IGNORECASE
-    )),
-    ("sql_injection_directive", re.compile(
-        r"\b(drop\s+table|delete\s+from|truncate\s+table|grant\s+all|pg_authid|pg_shadow)\b",
-        re.IGNORECASE,
-    )),
+    (
+        "instruction_override",
+        re.compile(
+            r"\b(ignore|disregard|forget|override)\b.{0,30}\b(previous|prior|above|earlier|all)\b"
+            r".{0,20}\b(instruction|prompt|rule|direction)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
+    (
+        "role_switch",
+        re.compile(r"\b(you are now|act as|pretend to be|from now on you)\b", re.IGNORECASE),
+    ),
+    (
+        "system_prompt_probe",
+        re.compile(
+            r"\b(system prompt|your instructions|reveal your|print your prompt)\b", re.IGNORECASE
+        ),
+    ),
+    (
+        "sql_injection_directive",
+        re.compile(
+            r"\b(drop\s+table|delete\s+from|truncate\s+table|grant\s+all|pg_authid|pg_shadow)\b",
+            re.IGNORECASE,
+        ),
+    ),
     ("delimiter_forgery", _DELIM_FORGERY),
-    ("exfiltration", re.compile(
-        r"\b(send|post|curl|http[s]?://)\b.{0,40}\b(key|token|password|secret)\b",
-        re.IGNORECASE | re.DOTALL,
-    )),
+    (
+        "exfiltration",
+        re.compile(
+            r"\b(send|post|curl|http[s]?://)\b.{0,40}\b(key|token|password|secret)\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
 )
 
 

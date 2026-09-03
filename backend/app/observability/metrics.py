@@ -21,9 +21,7 @@ llm_latency = Histogram(
     labelnames=("provider", "model", "stage"),
     buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
 )
-llm_tokens = Counter(
-    "llm_tokens_total", "Tokens consumed", labelnames=("model", "direction")
-)
+llm_tokens = Counter("llm_tokens_total", "Tokens consumed", labelnames=("model", "direction"))
 llm_cost = Counter("llm_cost_usd_total", "Estimated model spend", labelnames=("model",))
 
 # --- Pipeline ---------------------------------------------------------------
@@ -69,6 +67,4 @@ expensive_queries_blocked = Counter(
 
 # --- Connections ------------------------------------------------------------
 
-active_connectors = Gauge(
-    "active_database_connectors", "Pooled connectors currently open"
-)
+active_connectors = Gauge("active_database_connectors", "Pooled connectors currently open")

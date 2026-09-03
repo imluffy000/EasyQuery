@@ -52,9 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.is_production:
             raise
         log.error("llm_provider_unavailable", error=str(exc))
-        app.state.llm = build_provider(
-            provider="echo", model="echo", api_key=None
-        )
+        app.state.llm = build_provider(provider="echo", model="echo", api_key=None)
 
     try:
         app.state.redis = aioredis.from_url(
@@ -99,9 +97,7 @@ def create_app() -> FastAPI:
     # request id exists for everything inside), then the rate limiter.
     app.add_middleware(SecurityHeadersMiddleware, enable_hsts=settings.is_production)
     app.add_middleware(RequestContextMiddleware)
-    app.add_middleware(
-        RateLimitMiddleware, requests_per_minute=settings.rate_limit_per_minute
-    )
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=settings.rate_limit_per_minute)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -154,9 +150,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         first = exc.errors()[0] if exc.errors() else {}
         location = ".".join(str(p) for p in first.get("loc", [])[1:])
         return JSONResponse(

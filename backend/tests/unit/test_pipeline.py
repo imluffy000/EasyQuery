@@ -18,13 +18,13 @@ from app.agents.llm import EchoProvider
 from app.agents.state import ResultSummary, initial_state
 from app.database.connectors.base import (
     ConnectionConfig,
+    ConnectionTestResult,
     ConnectorError,
     DatabaseConnector,
     Engine,
     ExplainResult,
     QueryResult,
     SchemaSnapshot,
-    ConnectionTestResult,
 )
 from app.security.sql_guard import build_guard
 
@@ -228,9 +228,7 @@ async def test_expensive_query_suspends_for_confirmation() -> None:
 async def test_approved_expensive_query_runs() -> None:
     connector = StubConnector(cost=5_000_000.0)
     deps = make_deps(connector=connector, cost_threshold=1_000_000.0)
-    result = await build_graph(deps).ainvoke(
-        make_state(user_approved_expensive=True)
-    )
+    result = await build_graph(deps).ainvoke(make_state(user_approved_expensive=True))
 
     assert not result.get("awaiting_confirmation")
     assert connector.executed

@@ -176,15 +176,11 @@ def render_context_block(
         )
 
     if summary:
-        sections.append(
-            "Conversation so far:\n" + wrap_untrusted(summary, kind=TrustLevel.USER)
-        )
+        sections.append("Conversation so far:\n" + wrap_untrusted(summary, kind=TrustLevel.USER))
 
     if turns:
         recent = turns[-max_turns:]
-        rendered = "\n".join(
-            f"{t.get('role', 'user')}: {t.get('content', '')}" for t in recent
-        )
+        rendered = "\n".join(f"{t.get('role', 'user')}: {t.get('content', '')}" for t in recent)
         sections.append("Recent turns:\n" + wrap_untrusted(rendered, kind=TrustLevel.USER))
 
     return "\n\n".join(sections)

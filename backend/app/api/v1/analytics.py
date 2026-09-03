@@ -8,10 +8,11 @@ than being approximated in Python over a truncated sample.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Query as QueryParam
-from sqlalchemy import Float, case, cast, func, select
+from fastapi import APIRouter
+from fastapi import Query as QueryParam
+from sqlalchemy import case, func, select
 
 from app.api.deps import SessionDep, WorkspaceDep
 from app.models.conversation import Query
@@ -37,9 +38,11 @@ async def analytics(
     since = datetime.now(UTC) - timedelta(days=days)
     today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    base = select(Query).where(
-        Query.workspace_id == workspace_id, Query.created_at >= since
-    ).subquery()
+    base = (
+        select(Query)
+        .where(Query.workspace_id == workspace_id, Query.created_at >= since)
+        .subquery()
+    )
 
     totals = (
         await session.execute(
@@ -49,9 +52,7 @@ async def analytics(
                 func.count().filter(base.c.was_blocked.is_(True)).label("blocked"),
                 func.count().filter(base.c.error_code == "QUERY_TIMEOUT").label("timeouts"),
                 func.count().filter(base.c.status == "failed").label("failed"),
-                func.count()
-                .filter(base.c.required_clarification.is_(True))
-                .label("clarified"),
+                func.count().filter(base.c.required_clarification.is_(True)).label("clarified"),
                 func.count().filter(base.c.retry_count > 0).label("corrected"),
                 func.coalesce(func.avg(base.c.duration_ms), 0.0).label("avg_latency"),
                 func.coalesce(

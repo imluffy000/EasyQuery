@@ -30,7 +30,7 @@ def derive_fernet_key(secret: str) -> bytes:
         candidate = base64.urlsafe_b64decode(raw)
         if len(candidate) == 32:
             return raw
-    except Exception:  # noqa: BLE001 - not a base64 key, derive instead
+    except Exception:  # noqa: BLE001, S110 - not a base64 key; fall through and derive one
         pass
     digest = hashlib.sha256(raw).digest()
     return base64.urlsafe_b64encode(digest)
