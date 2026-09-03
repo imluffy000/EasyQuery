@@ -210,10 +210,37 @@ class PostgresConnector(DatabaseConnector):
                 f"Database '{self.config.database}' does not exist.", code="DB_NOT_FOUND"
             ) from exc
         except (TimeoutError, OSError) as exc:
-            raise ConnectorError(
-                f"Could not reach {self.config.host}:{self.config.port}.",
-                code="DB_UNREACHABLE",
-            ) from exc
+            raise ConnectorError(self._unreachable_message(exc), code="DB_UNREACHABLE") from exc
+
+    def _unreachable_message(self, exc: BaseException) -> str:
+        """Explain *why* a connection failed, not just that it did.
+
+        A refused socket and a rejected TLS handshake both surface as OSError,
+        and "could not reach host:port" sends people hunting for a network
+        problem when the real cause is usually one of two configuration
+        mistakes. Naming them here saves a long debugging detour.
+        """
+        host = self.config.host
+        base = f"Could not reach {host}:{self.config.port}."
+        hints: list[str] = []
+
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            hints.append(
+                "This application connects from inside its own container, where "
+                "'localhost' is the container itself rather than your machine. "
+                "Use the database's service name on the Docker network (for the "
+                "bundled demo database that is 'postgres', port 5432), or "
+                "'host.docker.internal' for a database running on your host."
+            )
+
+        if self.config.ssl_mode is not SSLMode.DISABLE:
+            hints.append(
+                f"SSL mode is '{self.config.ssl_mode.value}'. A server with TLS "
+                "disabled refuses the handshake and fails the same way as an "
+                "unreachable host; try 'disable' if the server does not use TLS."
+            )
+
+        return " ".join([base, *hints])
 
     async def close(self) -> None:
         if self._pool is not None:
