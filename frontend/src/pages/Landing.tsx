@@ -99,12 +99,13 @@ function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-5">
-        <Link to="/" className="flex items-center gap-2" aria-label="Database Copilot, home">
+        <Link to="/" className="flex items-center gap-2" aria-label="EasyQuery, home">
           <span className="h-3 w-3 shrink-0 bg-accent" aria-hidden />
           <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-fg">
-            Database Copilot
+            EasyQuery
           </span>
         </Link>
+
 
         <nav aria-label="Sections" className="ml-4 hidden gap-5 md:flex">
           {[

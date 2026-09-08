@@ -64,9 +64,10 @@ export function LoginPage() {
             DB
           </div>
           <div>
-            <h1 className="text-sm font-medium text-fg">Database Copilot</h1>
+            <h1 className="text-sm font-medium text-fg">EasyQuery</h1>
             <p className="text-2xs text-subtle">Natural-language analytics over your databases</p>
           </div>
+
         </div>
 
         <form onSubmit={submit} className="panel">

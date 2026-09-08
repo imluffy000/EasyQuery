@@ -167,8 +167,9 @@ function TopBar() {
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border-strong bg-surface px-3">
       <div className="flex items-center gap-2 pr-1">
         <div className="h-3 w-3 shrink-0 bg-accent" aria-hidden />
-        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-fg">Copilot</span>
+        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-fg">EasyQuery</span>
       </div>
+
 
       <div className="h-5 w-px bg-border" aria-hidden />
 
