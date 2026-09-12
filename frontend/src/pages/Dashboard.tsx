@@ -10,9 +10,10 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Database, MessageSquare, Plug, Table2 } from 'lucide-react'
+import { ArrowRight, Database, MessageSquare, Plug, Table2 } from 'lucide-react'
 
 import { statusTone } from '@/components/layout/DatabaseSelector'
+import { Reveal, Stagger, StaggerItem } from '@/components/motion'
 import {
   AsyncBoundary,
   Badge,
@@ -125,13 +126,22 @@ export function DashboardPage() {
   const metric = (render: (summary: NonNullable<typeof s>) => ReactNode): ReactNode => {
     if (loadingAnalytics) return <Skeleton className="h-7 w-20" />
     if (!s) return '—'
-    return render(s)
+    // The figure replaces its skeleton with a fade, so the tile does not
+    // blink from grey block to number.
+    return (
+      <Reveal as="span" variant="fade">
+        {render(s)}
+      </Reveal>
+    )
   }
 
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-5xl">
-        <header className="mb-4 flex items-start justify-between gap-4 border-b border-border pb-3">
+        <Reveal
+          as="header"
+          className="mb-4 flex items-start justify-between gap-4 border-b border-border pb-3"
+        >
           <div>
             <p className="micro">Workspace</p>
             <h1 className="mt-0.5 text-xl font-medium text-fg">Dashboard</h1>
@@ -139,8 +149,12 @@ export function DashboardPage() {
           </div>
           <div className="flex shrink-0 gap-2">
             <Link to="/chat">
-              <Button variant="primary">
-                <MessageSquare className="h-3.5 w-3.5" aria-hidden /> Ask a question
+              <Button variant="primary" className="group">
+                <MessageSquare
+                  className="h-3.5 w-3.5 transition-transform duration-base motion-safe:group-hover:-translate-y-px"
+                  aria-hidden
+                />{' '}
+                Ask a question
               </Button>
             </Link>
             <Link to="/schema">
@@ -149,7 +163,7 @@ export function DashboardPage() {
               </Button>
             </Link>
           </div>
-        </header>
+        </Reveal>
 
         <section aria-labelledby="dashboard-metrics" className="mb-3">
           <h2 id="dashboard-metrics" className="micro mb-1.5">
@@ -166,28 +180,38 @@ export function DashboardPage() {
           )}
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Connected databases" value={formatNumber(databases.length)} />
+            <Stat index={1} label="Connected databases" value={formatNumber(databases.length)} />
             <Stat
+              index={2}
               label="Queries today"
               value={metric((summary) => formatNumber(summary.queries_today))}
             />
             <Stat
+              index={3}
               label="Success rate"
               value={metric((summary) => `${summary.success_rate}%`)}
               tone={s ? (s.success_rate < 90 ? 'warn' : 'ok') : undefined}
             />
             <Stat
+              index={4}
               label="Avg latency"
               value={metric((summary) => formatDuration(summary.avg_latency_ms))}
             />
           </div>
         </section>
 
+        {/* Metrics first, then the panels that explain them. */}
         <div className="grid gap-3 lg:grid-cols-2">
-          <Panel title="Databases">
-            <ul className="divide-y divide-border">
-              {databases.map((db) => (
-                <li key={db.id} className="flex items-center gap-2.5 px-3 py-2">
+          <Panel index={5} title="Databases">
+            <Stagger as="ul" className="divide-y divide-border">
+              {databases.map((db, i) => (
+                <StaggerItem
+                  as="li"
+                  key={db.id}
+                  index={i + 5}
+                  variant="fade"
+                  className="flex items-center gap-2.5 px-3 py-2"
+                >
                   <StatusDot tone={statusTone(db.status)} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium text-fg">{db.name}</p>
@@ -199,19 +223,24 @@ export function DashboardPage() {
                     {db.last_synced_at ? formatRelative(db.last_synced_at) : 'not synced'}
                   </span>
                   {db.read_only && <Badge tone="ok">read-only</Badge>}
-                </li>
+                </StaggerItem>
               ))}
-            </ul>
+            </Stagger>
           </Panel>
 
           <Panel
+            index={6}
             title="Recent queries"
             actions={
               <Link
                 to="/history"
-                className="border border-transparent px-1 py-px text-2xs uppercase tracking-[0.08em] text-muted transition-colors hover:border-border-strong hover:text-fg"
+                className="group inline-flex items-center gap-1 border border-transparent px-1 py-px text-2xs uppercase tracking-[0.08em] text-muted transition-colors hover:border-border-strong hover:text-fg"
               >
                 View all
+                <ArrowRight
+                  className="h-3 w-3 transition-transform duration-base motion-safe:group-hover:translate-x-0.5"
+                  aria-hidden
+                />
               </Link>
             }
           >
@@ -235,9 +264,15 @@ export function DashboardPage() {
                 <EmptyState title="No queries yet" description="Ask a question to get started." />
               }
             >
-              <ul className="divide-y divide-border">
-                {history.map((q) => (
-                  <li key={q.id} className="flex items-center gap-2 px-3 py-2">
+              <Stagger as="ul" className="divide-y divide-border">
+                {history.map((q, i) => (
+                  <StaggerItem
+                    as="li"
+                    key={q.id}
+                    index={i + 6}
+                    variant="fade"
+                    className="flex items-center gap-2 px-3 py-2"
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs text-fg">{q.question}</p>
                       <p className="font-mono text-2xs tabular-nums text-subtle">
@@ -248,9 +283,9 @@ export function DashboardPage() {
                     <Badge tone={q.status === 'success' ? 'ok' : q.was_blocked ? 'danger' : 'neutral'}>
                       {q.status}
                     </Badge>
-                  </li>
+                  </StaggerItem>
                 ))}
-              </ul>
+              </Stagger>
             </AsyncBoundary>
           </Panel>
         </div>

@@ -16,13 +16,18 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
 } from 'react'
+import { createPortal } from 'react-dom'
+import { AnimatePresence, m, type HTMLMotionProps } from 'motion/react'
 import { AlertCircle, CheckCircle2, Loader2, X } from 'lucide-react'
 
+import { PopIn, Reveal, Stagger, StaggerItem } from '@/components/motion'
+import { DISTANCE, DURATION, EASE_OUT, SCALE, SPRING, usePrefersReducedMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
 // --- Button -----------------------------------------------------------------
@@ -48,28 +53,41 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean
 }
 
+/**
+ * Press is a spring compress on every variant, so a click is felt the instant
+ * it lands -- including from the keyboard, which Motion's press gesture
+ * honours for Enter. Hover lift is reserved for filled buttons; a ghost icon
+ * button in a dense toolbar that hopped under the cursor would be noise.
+ * Motion's hover gesture ignores touch, so nothing sticks after a tap.
+ */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { className, variant = 'secondary', size = 'md', loading, children, disabled, ...props },
   ref,
 ) {
+  const inert = Boolean(disabled || loading)
   return (
-    <button
+    <m.button
       ref={ref}
-      disabled={disabled || loading}
+      disabled={inert}
       aria-busy={loading || undefined}
+      whileHover={inert || variant === 'ghost' ? undefined : { y: -1 }}
+      whileTap={inert ? undefined : { scale: SCALE.press }}
+      transition={SPRING.press}
       className={cn(
-        'inline-flex items-center justify-center border cursor-pointer',
+        'relative inline-flex items-center justify-center border cursor-pointer',
         'transition-colors select-none whitespace-nowrap',
         'disabled:opacity-55 disabled:cursor-not-allowed',
         VARIANTS[variant],
         SIZES[size],
         className,
       )}
-      {...props}
+      // The DOM handlers Motion redefines (onAnimationStart, onDrag*) are not
+      // used by any caller; the rest pass straight through.
+      {...(props as HTMLMotionProps<'button'>)}
     >
       {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
       {children}
-    </button>
+    </m.button>
   )
 })
 
@@ -187,23 +205,72 @@ export function Badge({
   )
 }
 
-/** Small status dot; always pairs with a text label rather than replacing it. */
+const DOT_COLOR: Record<Tone, string> = {
+  neutral: 'bg-subtle',
+  ok: 'bg-ok',
+  warn: 'bg-warn',
+  danger: 'bg-danger',
+  info: 'bg-info',
+  accent: 'bg-accent',
+}
+
+/**
+ * Small status dot; always pairs with a text label rather than replacing it.
+ * When the status changes while on screen -- a test turns a pending
+ * connection green -- one ring expands off it. Never on first render: a page
+ * of dots all pinging at once would say nothing.
+ */
 export function StatusDot({ tone = 'neutral' }: { tone?: Tone }) {
-  const color: Record<Tone, string> = {
-    neutral: 'bg-subtle',
-    ok: 'bg-ok',
-    warn: 'bg-warn',
-    danger: 'bg-danger',
-    info: 'bg-info',
-    accent: 'bg-accent',
-  }
-  return <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', color[tone])} aria-hidden />
+  const previous = useRef(tone)
+  const [ping, setPing] = useState(0)
+
+  useEffect(() => {
+    if (previous.current === tone) return
+    previous.current = tone
+    setPing((n) => n + 1)
+  }, [tone])
+
+  return (
+    <span className="relative inline-flex h-1.5 w-1.5 shrink-0" aria-hidden>
+      {ping > 0 && (
+        <span
+          key={ping}
+          className={cn('absolute inset-0 rounded-full animate-ping-once', DOT_COLOR[tone])}
+        />
+      )}
+      <span
+        className={cn(
+          'relative h-1.5 w-1.5 rounded-full transition-colors duration-base',
+          DOT_COLOR[tone],
+        )}
+      />
+    </span>
+  )
 }
 
 // --- Feedback ---------------------------------------------------------------
 
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cn('h-4 w-4 animate-spin text-muted', className)} aria-hidden />
+}
+
+/**
+ * A full-area wait. The spinner holds back for a moment before appearing, so
+ * a load that resolves quickly shows nothing at all instead of a flash.
+ */
+export function LoadingState({ label, className }: { label?: string; className?: string }) {
+  return (
+    <div
+      role="status"
+      className={cn('flex h-full items-center justify-center gap-2 text-sm text-muted', className)}
+    >
+      <span className="flex items-center gap-2 animate-fade-in-delayed">
+        <Spinner className="h-5 w-5" />
+        {label && <span>{label}</span>}
+      </span>
+      {!label && <span className="sr-only">Loading</span>}
+    </div>
+  )
 }
 
 export function Skeleton({ className }: { className?: string }) {
@@ -221,20 +288,46 @@ export function EmptyState({
   action?: ReactNode
   icon?: ReactNode
 }) {
+  // Icon, then title, then the explanation and the way out: the order a
+  // reader needs them in.
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      {icon && <div className="mb-3 text-subtle">{icon}</div>}
-      <h3 className="text-sm font-medium text-fg">{title}</h3>
-      {description && <p className="mt-1 max-w-sm text-xs text-muted">{description}</p>}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
+    <Stagger className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      {icon && (
+        <StaggerItem index={0} variant="fade" className="mb-3 text-subtle">
+          {icon}
+        </StaggerItem>
+      )}
+      <StaggerItem as="h3" index={1} className="text-sm font-medium text-fg">
+        {title}
+      </StaggerItem>
+      {description && (
+        <StaggerItem as="p" index={2} className="mt-1 max-w-sm text-xs text-muted">
+          {description}
+        </StaggerItem>
+      )}
+      {action && (
+        <StaggerItem index={3} className="mt-4">
+          {action}
+        </StaggerItem>
+      )}
+    </Stagger>
   )
 }
 
+/**
+ * Inline failure. Arrives with a short lift and the icon settling in; no
+ * shake, because an error the user did not cause is not a scolding. The
+ * message is the content -- the motion only draws the eye to it.
+ */
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div role="alert" className="flex items-start gap-2.5 border border-danger/40 bg-danger/5 p-3">
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+    <Reveal
+      role="alert"
+      className="flex items-start gap-2.5 border border-danger/40 bg-danger/5 p-3"
+    >
+      <PopIn className="mt-0.5 shrink-0">
+        <AlertCircle className="h-4 w-4 text-danger" aria-hidden />
+      </PopIn>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-fg">{message}</p>
         {onRetry && (
@@ -243,7 +336,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
           </Button>
         )}
       </div>
-    </div>
+    </Reveal>
   )
 }
 
@@ -263,8 +356,10 @@ export function SuccessState({
   onDismiss?: () => void
 }) {
   return (
-    <div role="status" className="flex items-start gap-2.5 border border-ok/40 bg-ok/5 p-3">
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ok" aria-hidden />
+    <Reveal role="status" className="flex items-start gap-2.5 border border-ok/40 bg-ok/5 p-3">
+      <PopIn className="mt-0.5 shrink-0">
+        <CheckCircle2 className="h-4 w-4 text-ok" aria-hidden />
+      </PopIn>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-fg">{message}</p>
         {details && <div className="mt-1 text-2xs text-muted">{details}</div>}
@@ -274,7 +369,7 @@ export function SuccessState({
           <X className="h-3 w-3" aria-hidden />
         </Button>
       )}
-    </div>
+    </Reveal>
   )
 }
 
@@ -310,21 +405,31 @@ export function AsyncBoundary({
 
 // --- Layout helpers ---------------------------------------------------------
 
+/**
+ * A titled region. Pass `index` to have it arrive as part of its page's
+ * sequence (`when="inView"` for panels below the fold); without it the panel
+ * simply renders, which is right inside dialogs and disclosures that already
+ * animate themselves.
+ */
 export function Panel({
   title,
   actions,
   children,
   className,
   bodyClassName,
+  index,
+  when,
 }: {
   title?: ReactNode
   actions?: ReactNode
   children: ReactNode
   className?: string
   bodyClassName?: string
+  index?: number
+  when?: 'mount' | 'inView'
 }) {
-  return (
-    <section className={cn('panel flex flex-col overflow-hidden', className)}>
+  const content = (
+    <>
       {(title || actions) && (
         <header className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-border bg-elevated px-3">
           <h2 className="micro truncate text-muted">{title}</h2>
@@ -332,28 +437,43 @@ export function Panel({
         </header>
       )}
       <div className={cn('min-h-0 flex-1', bodyClassName)}>{children}</div>
-    </section>
+    </>
+  )
+  const classes = cn('panel flex flex-col overflow-hidden', className)
+
+  if (index === undefined) return <section className={classes}>{content}</section>
+  return (
+    <Reveal as="section" index={index} when={when} className={classes}>
+      {content}
+    </Reveal>
   )
 }
 
-/** Stat tile for the dashboard and analytics pages. */
+/**
+ * Stat tile for the dashboard and analytics pages. `index` places it in its
+ * row's stagger. The figure is never counted up from zero: an animation that
+ * passes through numbers the data never had would misreport it, however
+ * briefly, and a screen reader could catch it mid-count.
+ */
 export function Stat({
   label,
   value,
   sub,
   tone,
+  index = 0,
 }: {
   label: string
   value: ReactNode
   sub?: ReactNode
   tone?: Tone
+  index?: number
 }) {
   return (
-    <div className="panel px-3.5 py-3">
+    <Reveal index={index} className="panel px-3.5 py-3">
       <p className="micro">{label}</p>
       <p
         className={cn(
-          'mt-1.5 font-mono text-2xl tabular-nums text-fg',
+          'mt-1.5 font-mono text-2xl tabular-nums text-fg transition-colors duration-base',
           tone === 'danger' && 'text-danger',
           tone === 'ok' && 'text-ok',
           tone === 'warn' && 'text-warn',
@@ -362,7 +482,7 @@ export function Stat({
         {value}
       </p>
       {sub && <p className="mt-0.5 text-2xs text-muted">{sub}</p>}
-    </div>
+    </Reveal>
   )
 }
 
@@ -385,28 +505,66 @@ export function ConfirmDelete({
   confirming: boolean
   setConfirming: (v: boolean) => void
 }) {
-  if (!confirming) {
-    return (
-      <Button size="sm" variant="ghost" aria-label={label} onClick={() => setConfirming(true)}>
-        Delete
-      </Button>
-    )
+  const reduced = usePrefersReducedMotion()
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const deleteRef = useRef<HTMLButtonElement>(null)
+  // Which control the swap should hand focus to. Without this the button the
+  // user just activated unmounts under them and focus falls to <body>.
+  const focusNext = useRef<'cancel' | 'delete' | null>(null)
+
+  useEffect(() => {
+    const target = focusNext.current === 'cancel' ? cancelRef : focusNext.current === 'delete' ? deleteRef : null
+    focusNext.current = null
+    target?.current?.focus()
+  }, [confirming])
+
+  const swap = {
+    initial: reduced ? false : ({ opacity: 0, x: DISTANCE.nudge * 2 } as const),
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, transition: { duration: reduced ? 0 : DURATION.instant } },
+    transition: { duration: DURATION.fast, ease: EASE_OUT },
   }
+
   return (
-    <div className="flex items-center gap-1">
-      {error && <span className="mr-1 text-2xs text-danger">{error}</span>}
-      <Button size="sm" variant="danger" loading={pending} onClick={onConfirm}>
-        Confirm
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Cancel delete"
-        onClick={() => setConfirming(false)}
-      >
-        Cancel
-      </Button>
-    </div>
+    <AnimatePresence mode="popLayout" initial={false}>
+      {!confirming ? (
+        <m.span key="delete" className="inline-flex" {...swap}>
+          <Button
+            ref={deleteRef}
+            size="sm"
+            variant="ghost"
+            aria-label={label}
+            onClick={() => {
+              focusNext.current = 'cancel'
+              setConfirming(true)
+            }}
+          >
+            Delete
+          </Button>
+        </m.span>
+      ) : (
+        // Focus lands on Cancel, not Confirm: a stray second Enter should
+        // back out of a delete, never complete one.
+        <m.div key="confirm" className="flex items-center gap-1" {...swap}>
+          {error && <span className="mr-1 text-2xs text-danger">{error}</span>}
+          <Button size="sm" variant="danger" loading={pending} onClick={onConfirm}>
+            Confirm
+          </Button>
+          <Button
+            ref={cancelRef}
+            size="sm"
+            variant="ghost"
+            aria-label="Cancel delete"
+            onClick={() => {
+              focusNext.current = 'delete'
+              setConfirming(false)
+            }}
+          >
+            Cancel
+          </Button>
+        </m.div>
+      )}
+    </AnimatePresence>
   )
 }
 
@@ -436,15 +594,34 @@ export function ErrorPage({
       role="alert"
       className="flex h-full min-h-[60vh] items-center justify-center px-4 py-10"
     >
-      <div className="w-full max-w-md text-center">
-        {icon && <div className="mb-3 flex justify-center text-subtle">{icon}</div>}
-        {code && <p className="micro">{code}</p>}
-        <h1 className="mt-1.5 text-lg font-medium text-fg">{title}</h1>
+      {/* What happened reads first; the way out follows it. */}
+      <Stagger className="w-full max-w-md text-center">
+        {icon && (
+          <StaggerItem index={0} variant="fade" className="mb-3 flex justify-center text-subtle">
+            {icon}
+          </StaggerItem>
+        )}
+        {code && (
+          <StaggerItem as="p" index={0} className="micro">
+            {code}
+          </StaggerItem>
+        )}
+        <StaggerItem as="h1" index={1} className="mt-1.5 text-lg font-medium text-fg">
+          {title}
+        </StaggerItem>
         {description && (
-          <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted">{description}</p>
+          <StaggerItem
+            as="p"
+            index={2}
+            className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted"
+          >
+            {description}
+          </StaggerItem>
         )}
         {actions && (
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">{actions}</div>
+          <StaggerItem index={3} className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {actions}
+          </StaggerItem>
         )}
         {/* Development only. A stack trace is not a user-facing artefact. */}
         {detail && import.meta.env.DEV && (
@@ -452,10 +629,49 @@ export function ErrorPage({
             {detail}
           </pre>
         )}
-      </div>
+      </Stagger>
     </div>
   )
 }
+
+/**
+ * The shared entrance for modal surfaces: the scrim fades, the panel rises a
+ * few pixels and settles. Enter-only -- dialogs here are unmounted by their
+ * callers, and a closing animation is time the user spends waiting.
+ *
+ * Portalled to <body>. A dialog rendered inside a card that lifts on hover, or
+ * a page mid-transition, would otherwise be positioned against that transform
+ * instead of the viewport.
+ */
+export function ModalLayer({
+  children,
+  className,
+  onBackdropClick,
+}: {
+  children: ReactNode
+  className?: string
+  onBackdropClick: () => void
+}) {
+  const reduced = usePrefersReducedMotion()
+  return createPortal(
+    <m.div
+      className={cn('fixed inset-0 flex items-center justify-center bg-scrim/50 p-4', className)}
+      initial={reduced ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: DURATION.fast, ease: EASE_OUT }}
+      onClick={(e) => e.target === e.currentTarget && onBackdropClick()}
+    >
+      {children}
+    </m.div>,
+    document.body,
+  )
+}
+
+export const MODAL_PANEL_MOTION = {
+  initial: { opacity: 0, y: DISTANCE.lift, scale: 0.985 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  transition: { duration: DURATION.base, ease: EASE_OUT },
+} as const
 
 // --- Dialogs ----------------------------------------------------------------
 
@@ -572,13 +788,11 @@ export function ConfirmDialog({
   const panelRef = useModalFocus(onCancel)
   const titleId = useId()
   const descriptionId = useId()
+  const reduced = usePrefersReducedMotion()
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim/50 p-4 animate-fade-in"
-      onClick={(e) => e.target === e.currentTarget && !pending && onCancel()}
-    >
-      <div
+    <ModalLayer className="z-[60]" onBackdropClick={() => !pending && onCancel()}>
+      <m.div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
@@ -586,6 +800,8 @@ export function ConfirmDialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className="w-full max-w-sm border border-border-strong bg-surface shadow-popover"
+        {...MODAL_PANEL_MOTION}
+        initial={reduced ? false : MODAL_PANEL_MOTION.initial}
       >
         <header className="flex h-10 shrink-0 items-center border-b border-border bg-elevated px-3">
           <h2 id={titleId} className="text-sm font-medium text-fg">
@@ -608,7 +824,7 @@ export function ConfirmDialog({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </m.div>
+    </ModalLayer>
   )
 }

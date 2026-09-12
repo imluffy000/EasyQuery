@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { CornerDownLeft, Database, PanelRightOpen, Square } from 'lucide-react'
+import { AnimatePresence, m } from 'motion/react'
+import { Check, CornerDownLeft, Database, PanelRightOpen, Square } from 'lucide-react'
 
 import { ClarificationPrompt, ConfirmationPrompt, StatusTrail } from '@/components/chat/Prompts'
 import { QueryDetailsDrawer, SqlDisclosure, TrustBar } from '@/components/chat/SqlPanel'
+import { Reveal, Stagger, StaggerItem, SwapText } from '@/components/motion'
 import { ChartView } from '@/components/result/ChartView'
 import { ResultTable } from '@/components/result/ResultTable'
 import { Button, EmptyState, ErrorState, SuccessState } from '@/components/ui'
 import { ApiRequestError, streamChat } from '@/lib/api'
+import { DURATION, EASE_OUT, useFlash, usePrefersReducedMotion } from '@/lib/motion'
 import { useUnsavedGuard } from '@/lib/unsavedChanges'
 import { cn, formatDuration, formatNumber } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
@@ -60,16 +63,29 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const reduced = usePrefersReducedMotion()
 
   const busy = turns.some((t) => t.streaming)
+
+  // Idle -> Running -> Completed on the composer's own button. "Completed" is
+  // flashed only when a turn actually settled with a response, never on a
+  // timer and never for a failure or a cancel.
+  const [completed, flashCompleted] = useFlash<'done'>(1400)
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    const settled = wasBusy.current && !busy
+    wasBusy.current = busy
+    const last = turns[turns.length - 1]
+    if (settled && last?.response && !last.error) flashCompleted('done')
+  }, [busy, turns, flashCompleted])
 
   // A typed question that has not been sent, or a query still running, is
   // work the user would lose by navigating away.
   useUnsavedGuard('chat-composer', input.trim() !== '' || busy)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [turns])
+    bottomRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'end' })
+  }, [turns, reduced])
 
   // Grow the composer with its content up to the max-height cap.
   useEffect(() => {
@@ -205,26 +221,32 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-4xl px-5 py-5">
             {turns.length === 0 && (
-              <div className="py-10">
-                <h2 className="text-sm font-medium text-fg">Ask a question about your data</h2>
-                <p className="mt-1 text-xs text-muted">
+              <Stagger className="py-10">
+                <StaggerItem as="h2" index={0} className="text-sm font-medium text-fg">
+                  Ask a question about your data
+                </StaggerItem>
+                <StaggerItem as="p" index={1} className="mt-1 text-xs text-muted">
                   Questions are translated to read-only SQL, validated, and explained.
-                </p>
+                </StaggerItem>
                 <ul className="mt-4 space-y-1.5">
-                  {EXAMPLES.map((example) => (
-                    <li key={example}>
+                  {EXAMPLES.map((example, i) => (
+                    <StaggerItem as="li" key={example} index={i + 2}>
                       <button
                         onClick={() => void ask(example)}
-                        className="w-full border border-border bg-surface px-3 py-2
-                                   text-left text-xs text-muted cursor-pointer transition-colors
-                                   hover:border-border-strong hover:text-fg"
+                        className="lift group flex w-full items-center justify-between gap-3 border border-border
+                                   bg-surface px-3 py-2 text-left text-xs text-muted cursor-pointer
+                                   hover:text-fg"
                       >
                         {example}
+                        <CornerDownLeft
+                          className="h-3 w-3 shrink-0 text-subtle opacity-0 transition-opacity duration-base group-hover:opacity-100 group-focus-visible:opacity-100"
+                          aria-hidden
+                        />
                       </button>
-                    </li>
+                    </StaggerItem>
                   ))}
                 </ul>
-              </div>
+              </Stagger>
             )}
 
             <div className="space-y-6">
@@ -266,15 +288,27 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
               />
               {busy ? (
                 <Button
+                  key="stop"
                   variant="secondary"
                   onClick={() => abortRef.current?.abort()}
                   title="Stop"
                 >
-                  <Square className="h-3.5 w-3.5" aria-hidden /> Stop
+                  <SwapText state="running">
+                    <Square className="h-3.5 w-3.5" aria-hidden /> Stop
+                  </SwapText>
                 </Button>
               ) : (
-                <Button variant="primary" onClick={submit} disabled={!input.trim()}>
-                  <CornerDownLeft className="h-3.5 w-3.5" aria-hidden /> Ask
+                <Button key="ask" variant="primary" onClick={submit} disabled={!input.trim()}>
+                  {/* Completed shows as a tick for a moment; the word stays
+                      "Ask" so the control never changes its name mid-use. */}
+                  <SwapText state={completed ?? 'idle'}>
+                    {completed ? (
+                      <Check className="h-3.5 w-3.5" aria-hidden />
+                    ) : (
+                      <CornerDownLeft className="h-3.5 w-3.5" aria-hidden />
+                    )}{' '}
+                    Ask
+                  </SwapText>
                 </Button>
               )}
             </div>
@@ -308,13 +342,32 @@ function TurnView({
   onCancelConfirm: () => void
 }) {
   const response = turn.response
+  const reduced = usePrefersReducedMotion()
 
   return (
-    <article className="animate-fade-in">
+    <Reveal as="article">
       <p className="text-sm font-medium text-fg">{turn.question}</p>
 
       <div className="mt-2 border-l-2 border-border pl-3">
-        {turn.streaming && <StatusTrail events={turn.events} />}
+        {/* The trail folds away as the answer takes its place, so running
+            into results reads as one continuous motion rather than a swap.
+            No `initial={false}` here: it would also block each step's own
+            slide-in, since steps mount inside this presence boundary. */}
+        <AnimatePresence>
+          {turn.streaming && (
+            <m.div
+              key="trail"
+              className="overflow-hidden"
+              exit={{
+                height: 0,
+                opacity: 0,
+                transition: { duration: reduced ? 0 : DURATION.base, ease: EASE_OUT },
+              }}
+            >
+              <StatusTrail events={turn.events} />
+            </m.div>
+          )}
+        </AnimatePresence>
 
         {turn.error && (
           <div className="mt-1">
@@ -334,58 +387,75 @@ function TurnView({
                 onCancel={onCancelConfirm}
               />
             ) : (
-              <>
+              // Arrival order is reading order: that it worked, what it
+              // means, how far to trust it, then the data and the SQL behind
+              // it. Each block waits a beat for the one above.
+              <Stagger>
                 {/* The result table shows what came back, but not that the run
                     itself succeeded -- an empty result and a failed query look
                     alike without this. */}
                 {response.result && (
-                  <div className="mb-3">
+                  <StaggerItem index={0} className="mb-3">
                     <SuccessState
                       message="Query executed successfully."
                       details={`${formatNumber(response.result.row_count)} rows in ${formatDuration(response.result.duration_ms)}.`}
                     />
-                  </div>
+                  </StaggerItem>
                 )}
 
                 {response.answer && (
-                  <p className="whitespace-pre-wrap text-sm text-fg">{response.answer}</p>
+                  <StaggerItem as="p" index={1} className="whitespace-pre-wrap text-sm text-fg">
+                    {response.answer}
+                  </StaggerItem>
                 )}
 
                 {response.errors.length > 0 && !response.answer && (
-                  <ErrorState message={response.errors[response.errors.length - 1]!.message} />
+                  <StaggerItem index={1}>
+                    <ErrorState message={response.errors[response.errors.length - 1]!.message} />
+                  </StaggerItem>
                 )}
 
-                <TrustBar response={response} />
+                <StaggerItem index={2} variant="fade">
+                  <TrustBar response={response} />
+                </StaggerItem>
 
                 {response.result && response.visualization &&
                   response.visualization.type !== 'table' && (
-                    <div className="mt-3">
+                    <StaggerItem index={3} className="mt-3">
                       <ChartView spec={response.visualization} result={response.result} />
-                    </div>
+                    </StaggerItem>
                   )}
 
                 {response.result && (
-                  <div className="mt-3">
+                  // Not a clip reveal: the table has a fullscreen mode that is
+                  // position: fixed, and must not sit under a mask mid-reveal.
+                  <StaggerItem index={4} className="mt-3">
                     <ResultTable result={response.result} className="max-h-80" />
-                  </div>
+                  </StaggerItem>
                 )}
 
-                <SqlDisclosure response={response} />
+                <StaggerItem index={5} variant="fade">
+                  <SqlDisclosure response={response} />
 
-                <button
-                  onClick={() => onShowDetails(response)}
-                  className={cn(
-                    'mt-1.5 inline-flex items-center gap-1 text-2xs text-subtle',
-                    'cursor-pointer hover:text-fg',
-                  )}
-                >
-                  <PanelRightOpen className="h-3 w-3" aria-hidden /> Details
-                </button>
-              </>
+                  <button
+                    onClick={() => onShowDetails(response)}
+                    className={cn(
+                      'group mt-1.5 inline-flex items-center gap-1 text-2xs text-subtle',
+                      'cursor-pointer transition-colors hover:text-fg',
+                    )}
+                  >
+                    <PanelRightOpen
+                      className="h-3 w-3 transition-transform duration-base motion-safe:group-hover:translate-x-0.5"
+                      aria-hidden
+                    />{' '}
+                    Details
+                  </button>
+                </StaggerItem>
+              </Stagger>
             )}
           </>
         )}
       </div>
-    </article>
+    </Reveal>
   )
 }

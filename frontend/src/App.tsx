@@ -1,12 +1,18 @@
 import { lazy, useEffect, useState } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, WifiOff } from 'lucide-react'
 
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppShell } from '@/components/layout/AppShell'
-import { Button, ErrorPage, Spinner } from '@/components/ui'
+import { Button, ErrorPage, LoadingState } from '@/components/ui'
 import { ApiRequestError, api, tokens } from '@/lib/api'
+import {
+  OAUTH_CANCELLED_ERROR,
+  OAUTH_CANCELLED_NOTICE,
+  clearOAuthOrigin,
+  peekOAuthOrigin,
+} from '@/lib/oauth'
 import { LandingPage } from '@/pages/Landing'
 import { LoginPage } from '@/pages/Login'
 import { NotFoundPage } from '@/pages/NotFound'
@@ -53,13 +59,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!hasToken) return <Navigate to="/login" replace state={{ from: location }} />
 
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="h-5 w-5" />
-      </div>
-    )
-  }
+  if (isLoading) return <LoadingState />
+
 
   if (isError) {
     // A 401 here means the client already tried its refresh flow and it
@@ -129,26 +130,35 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   account_selection_required: 'Please choose an account and try again.',
 }
 
-function OAuthCallback() {
+export function OAuthCallback() {
   const [error, setError] = useState<string | null>(null)
   const location = useLocation()
+  const navigate = useNavigate()
   useEffect(() => {
     const values = new URLSearchParams(location.hash.slice(1))
     const access = values.get('access_token')
     const refresh = values.get('refresh_token')
     if (access && refresh) {
+      clearOAuthOrigin()
       tokens.set({ access_token: access, refresh_token: refresh, token_type: 'bearer', expires_in: 0 })
       window.history.replaceState(null, '', '/dashboard')
       window.location.replace('/dashboard')
-    } else {
-      const code = new URLSearchParams(location.search).get('error')
-      setError(
-        (code && OAUTH_ERROR_MESSAGES[code]) ?? 'Social sign-in could not be completed.',
-      )
+      return
     }
-  }, [location, setError])
+    const code = new URLSearchParams(location.search).get('error')
+    // The backend routes a cancellation to /login itself; this covers a
+    // provider or proxy that delivers `access_denied` here instead. Either
+    // way a deliberate cancel goes back to the form it started from, not to
+    // an error page.
+    if (code === OAUTH_CANCELLED_ERROR) {
+      navigate(`${peekOAuthOrigin()}?notice=${OAUTH_CANCELLED_NOTICE}`, { replace: true })
+      return
+    }
+    setError((code && OAUTH_ERROR_MESSAGES[code]) ?? 'Social sign-in could not be completed.')
+  }, [location, navigate, setError])
 
   if (error) {
+    const origin = peekOAuthOrigin()
     return (
       <ErrorPage
         icon={<AlertTriangle className="h-7 w-7" aria-hidden />}
@@ -157,19 +167,17 @@ function OAuthCallback() {
         description={error}
         actions={
           <Link
-            to="/login"
-            className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-colors hover:bg-accent/90"
+            to={origin}
+            className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-[background-color,transform] duration-fast hover:bg-accent/90 active:scale-[0.97]"
           >
-            Back to sign in
+            {origin === '/register' ? 'Back to sign up' : 'Back to sign in'}
           </Link>
         }
       />
     )
   }
 
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-muted">Signing you in…</div>
-  )
+  return <LoadingState label="Signing you in…" />
 }
 
 export function App() {

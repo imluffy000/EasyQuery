@@ -9,8 +9,16 @@
  * The hero shows the actual pipeline rather than an abstract illustration:
  * question -> plan -> SQL -> guard -> result. That sequence is the product,
  * and showing it is more persuasive than describing it.
+ *
+ * Motion follows the same idea. The example turn assembles in pipeline order
+ * as the page loads, sections arrive as they are scrolled to, and the only
+ * scroll-linked effects -- a receding hero, a rule that fills along the three
+ * steps -- tie position on the page to progress through the story. Native
+ * scrolling is never taken over, and phones and reduced motion get none of the
+ * scroll-linked work.
  */
 
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
@@ -24,6 +32,14 @@ import {
   Table2,
 } from 'lucide-react'
 
+import {
+  MagneticButton,
+  ParallaxElement,
+  Reveal,
+  ScrollProgress,
+  Stagger,
+  StaggerItem,
+} from '@/components/motion'
 import { Badge, Button } from '@/components/ui'
 
 const FEATURES = [
@@ -116,7 +132,7 @@ function SiteHeader() {
             <a
               key={href}
               href={href}
-              className="text-2xs uppercase tracking-[0.1em] text-muted transition-colors hover:text-fg"
+              className="link-underline pb-0.5 text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg"
             >
               {label}
             </a>
@@ -140,47 +156,75 @@ function SiteHeader() {
   )
 }
 
+/** Arrow that leans toward where the button goes. Hover-capable, motion-safe only. */
+const ARROW =
+  'h-3.5 w-3.5 transition-transform duration-base motion-safe:group-hover:translate-x-0.5'
+
 function Hero() {
   return (
     <section className="border-b border-border">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:py-20">
-        <div>
-          <Badge tone="accent">PostgreSQL &amp; Supabase</Badge>
+        {/* Promise, then proof, then the way in. */}
+        <Stagger>
+          <StaggerItem index={0} variant="fade">
+            <Badge tone="accent">PostgreSQL &amp; Supabase</Badge>
+          </StaggerItem>
 
-          <h1 className="mt-4 text-balance text-4xl font-semibold text-fg lg:text-5xl">
+          <StaggerItem
+            as="h1"
+            index={1}
+            variant="clip"
+            className="mt-4 text-balance text-4xl font-semibold text-fg lg:text-5xl"
+          >
             Ask your database a question. Read the SQL it ran.
-          </h1>
+          </StaggerItem>
 
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
+          <StaggerItem
+            as="p"
+            index={2}
+            className="mt-4 max-w-xl text-base leading-relaxed text-muted"
+          >
             Database Copilot turns plain-language questions into validated, read-only SQL — then
             shows you the statement, the query plan, and the cost before anything touches your
             data. Built for people who need the answer and the receipts.
-          </p>
+          </StaggerItem>
 
-          <div className="mt-7 flex flex-wrap items-center gap-3">
-            <Link to="/register">
-              <Button size="md" variant="primary" className="h-10 px-5">
-                Create an account <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-              </Button>
-            </Link>
+          <StaggerItem index={3} className="mt-7 flex flex-wrap items-center gap-3">
+            <MagneticButton>
+              <Link to="/register">
+                <Button size="md" variant="primary" className="group h-10 px-5">
+                  Create an account <ArrowRight className={ARROW} aria-hidden />
+                </Button>
+              </Link>
+            </MagneticButton>
             <Link to="/login">
               <Button size="md" variant="secondary" className="h-10 px-5">
                 Sign in
               </Button>
             </Link>
-          </div>
+          </StaggerItem>
 
           <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-2">
-            {['Read-only enforced', 'No data leaves your database', 'Full query audit'].map((t) => (
-              <li key={t} className="flex items-center gap-1.5 text-xs text-muted">
+            {['Read-only enforced', 'No data leaves your database', 'Full query audit'].map((t, i) => (
+              <StaggerItem
+                as="li"
+                key={t}
+                index={4 + i}
+                variant="fade"
+                className="flex items-center gap-1.5 text-xs text-muted"
+              >
                 <Check className="h-3.5 w-3.5 shrink-0 text-ok" aria-hidden />
                 {t}
-              </li>
+              </StaggerItem>
             ))}
           </ul>
-        </div>
+        </Stagger>
 
-        <PipelineDemo />
+        {/* Parallax sits on a wrapper; the reveal inside owns the figure's
+            own transform, and two libraries must not write the same one. */}
+        <ParallaxElement>
+          <PipelineDemo />
+        </ParallaxElement>
       </div>
     </section>
   )
@@ -191,19 +235,23 @@ function Hero() {
  * is an example rather than an invented screenshot.
  */
 function PipelineDemo() {
+  // Pieces arrive in the order the pipeline produces them: the question, the
+  // SQL (wiped in, as if written), the rows, then the receipts. It starts once
+  // the headline has landed, so the eye goes promise first, proof second.
+  const at = (step: number) => step + 3
   return (
-    <figure className="panel overflow-hidden">
+    <Stagger as="figure" className="panel overflow-hidden">
       <figcaption className="flex h-8 items-center gap-2 border-b border-border bg-elevated px-3">
         <span className="micro">Example turn</span>
       </figcaption>
 
       <div className="divide-y divide-border">
-        <div className="px-3 py-2.5">
+        <StaggerItem index={at(0)} variant="fade" className="px-3 py-2.5">
           <p className="micro mb-1">Question</p>
           <p className="text-sm text-fg">What are the top 5 products by total revenue?</p>
-        </div>
+        </StaggerItem>
 
-        <div className="bg-sunken px-3 py-2.5">
+        <StaggerItem index={at(1)} variant="wipe" className="bg-sunken px-3 py-2.5">
           <div className="mb-1 flex items-center gap-2">
             <p className="micro">SQL executed</p>
             <Badge tone="info">rewritten by guard</Badge>
@@ -217,9 +265,9 @@ function PipelineDemo() {
  ORDER BY revenue DESC
  LIMIT 5`}</code>
           </pre>
-        </div>
+        </StaggerItem>
 
-        <div className="px-3 py-2.5">
+        <StaggerItem index={at(3)} variant="fade" className="px-3 py-2.5">
           <p className="micro mb-1.5">Result</p>
           <table className="w-full font-mono text-2xs tabular-nums">
             <thead>
@@ -241,16 +289,39 @@ function PipelineDemo() {
               ))}
             </tbody>
           </table>
-        </div>
+        </StaggerItem>
 
-        <div className="flex flex-wrap gap-x-4 gap-y-1 bg-elevated px-3 py-2">
+        <StaggerItem
+          index={at(4)}
+          variant="fade"
+          className="flex flex-wrap gap-x-4 gap-y-1 bg-elevated px-3 py-2"
+        >
           <span className="readout">5 rows</span>
           <span className="readout">45 ms</span>
           <span className="readout">read-only</span>
           <span className="readout">cost checked</span>
-        </div>
+        </StaggerItem>
       </div>
-    </figure>
+    </Stagger>
+  )
+}
+
+/** Eyebrow and title arrive together as the section scrolls into view. */
+function SectionHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string
+  title: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <Reveal when="inView">
+      <p className="micro">{eyebrow}</p>
+      <h2 className="mt-2 text-balance text-3xl font-semibold text-fg">{title}</h2>
+      {children}
+    </Reveal>
   )
 }
 
@@ -258,23 +329,29 @@ function HowItWorks() {
   return (
     <section id="how" className="border-b border-border scroll-mt-14">
       <div className="mx-auto max-w-6xl px-5 py-16">
-        <p className="micro">How it works</p>
-        <h2 className="mt-2 text-balance text-3xl font-semibold text-fg">
-          Three steps from connection to answer
-        </h2>
+        <SectionHeading eyebrow="How it works" title="Three steps from connection to answer" />
 
-        {/* Numbered because these are genuinely sequential. */}
-        <ol className="mt-9 grid gap-px border border-border bg-border md:grid-cols-3">
-          {STEPS.map((s) => (
-            <li key={s.n} className="bg-surface p-5">
-              <span className="font-mono text-2xs font-semibold tracking-[0.1em] text-accent">
-                {s.n}
-              </span>
-              <h3 className="mt-2 text-base font-medium text-fg">{s.title}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted">{s.body}</p>
-            </li>
-          ))}
-        </ol>
+        {/* Numbered because these are genuinely sequential. The rule along
+            the top fills as the section is scrolled through, so reading
+            position and step order line up. */}
+        <div className="relative mt-9">
+          <ScrollProgress className="absolute inset-x-0 -top-px z-10 hidden h-0.5 md:block" />
+          <Stagger
+            as="ol"
+            when="inView"
+            className="grid gap-px border border-border bg-border md:grid-cols-3"
+          >
+            {STEPS.map((s, i) => (
+              <StaggerItem as="li" key={s.n} index={i} className="bg-surface p-5">
+                <span className="font-mono text-2xs font-semibold tracking-[0.1em] text-accent">
+                  {s.n}
+                </span>
+                <h3 className="mt-2 text-base font-medium text-fg">{s.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">{s.body}</p>
+              </StaggerItem>
+            ))}
+          </Stagger>
+        </div>
       </div>
     </section>
   )
@@ -284,24 +361,38 @@ function Features() {
   return (
     <section id="features" className="border-b border-border scroll-mt-14">
       <div className="mx-auto max-w-6xl px-5 py-16">
-        <p className="micro">Features</p>
-        <h2 className="mt-2 text-balance text-3xl font-semibold text-fg">
-          Built so you never have to take the model&rsquo;s word for it
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-          A language model writes the SQL. Everything that decides whether it runs is ordinary,
-          auditable code.
-        </p>
+        <SectionHeading
+          eyebrow="Features"
+          title={<>Built so you never have to take the model&rsquo;s word for it</>}
+        >
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+            A language model writes the SQL. Everything that decides whether it runs is ordinary,
+            auditable code.
+          </p>
+        </SectionHeading>
 
-        <div className="mt-9 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, body }) => (
-            <article key={title} className="bg-surface p-5">
-              <Icon className="h-4.5 w-4.5 text-accent" aria-hidden />
+        {/* Not links, so no lift: a ground shift and a nudge of the icon
+            acknowledge the pointer without promising a click. */}
+        <Stagger
+          when="inView"
+          className="mt-9 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {FEATURES.map(({ icon: Icon, title, body }, i) => (
+            <StaggerItem
+              as="article"
+              key={title}
+              index={i}
+              className="group bg-surface p-5 transition-colors duration-base hover:bg-elevated"
+            >
+              <Icon
+                className="h-4.5 w-4.5 text-accent transition-transform duration-base motion-safe:group-hover:-translate-y-0.5"
+                aria-hidden
+              />
               <h3 className="mt-2.5 text-base font-medium text-fg">{title}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-muted">{body}</p>
-            </article>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </div>
     </section>
   )
@@ -311,11 +402,7 @@ function Trust() {
   return (
     <section id="security" className="border-b border-border scroll-mt-14">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 lg:grid-cols-2 lg:items-start">
-        <div>
-          <p className="micro">Security</p>
-          <h2 className="mt-2 text-balance text-3xl font-semibold text-fg">
-            The guard does not trust the model
-          </h2>
+        <SectionHeading eyebrow="Security" title="The guard does not trust the model">
           <p className="mt-3 text-sm leading-relaxed text-muted">
             Prompt injection is assumed, not hoped against. A generated statement is parsed into a
             syntax tree and checked against an allow-list before execution — so a model that is
@@ -324,29 +411,29 @@ function Trust() {
           </p>
 
           <Link to="/register" className="mt-6 inline-block">
-            <Button variant="secondary">
-              Start with a read-only role <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            <Button variant="secondary" className="group">
+              Start with a read-only role <ArrowRight className={ARROW} aria-hidden />
             </Button>
           </Link>
-        </div>
+        </SectionHeading>
 
-        <ul className="grid gap-px border border-border bg-border">
+        <Stagger as="ul" when="inView" className="grid gap-px border border-border bg-border">
           {[
             ['Statement allow-list', 'Only SELECT and WITH survive parsing. DDL, DML and multi-statement input are rejected.'],
             ['Schema confinement', 'Queries can only reach the schemas you marked visible on the connection.'],
             ['Row and time ceilings', 'A LIMIT is injected when absent, and a statement timeout is applied per connection.'],
             ['Credentials encrypted at rest', 'Database passwords are encrypted with a key held by the application, never logged.'],
             ['Per-workspace isolation', 'Connections, history and saved queries never cross a workspace boundary.'],
-          ].map(([title, body]) => (
-            <li key={title} className="flex gap-3 bg-surface p-4">
+          ].map(([title, body], i) => (
+            <StaggerItem as="li" key={title} index={i} className="flex gap-3 bg-surface p-4">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ok" aria-hidden />
               <div>
                 <h3 className="text-sm font-medium text-fg">{title}</h3>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted">{body}</p>
               </div>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </Stagger>
       </div>
     </section>
   )
@@ -355,27 +442,33 @@ function Trust() {
 function FinalCta() {
   return (
     <section className="border-b border-border bg-elevated">
-      <div className="mx-auto max-w-6xl px-5 py-16 text-center">
-        <h2 className="text-balance text-3xl font-semibold text-fg">
+      <Stagger when="inView" className="mx-auto max-w-6xl px-5 py-16 text-center">
+        <StaggerItem as="h2" index={0} className="text-balance text-3xl font-semibold text-fg">
           Point it at a read-only role and ask it something
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted">
+        </StaggerItem>
+        <StaggerItem
+          as="p"
+          index={1}
+          className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted"
+        >
           Connect a database, ask a question, and check the SQL yourself. If the answer is wrong,
           you will be able to see exactly why.
-        </p>
-        <div className="mt-7 flex flex-wrap justify-center gap-3">
-          <Link to="/register">
-            <Button variant="primary" className="h-10 px-5">
-              Create an account <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-            </Button>
-          </Link>
+        </StaggerItem>
+        <StaggerItem index={2} className="mt-7 flex flex-wrap justify-center gap-3">
+          <MagneticButton>
+            <Link to="/register">
+              <Button variant="primary" className="group h-10 px-5">
+                Create an account <ArrowRight className={ARROW} aria-hidden />
+              </Button>
+            </Link>
+          </MagneticButton>
           <Link to="/login">
             <Button variant="secondary" className="h-10 px-5">
               Sign in
             </Button>
           </Link>
-        </div>
-      </div>
+        </StaggerItem>
+      </Stagger>
     </section>
   )
 }
@@ -393,12 +486,15 @@ function SiteFooter() {
         <p className="text-2xs text-subtle">Natural-language analytics over your databases.</p>
         <div className="flex-1" />
         <nav aria-label="Footer" className="flex gap-5">
-          <Link to="/login" className="text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg">
+          <Link
+            to="/login"
+            className="link-underline pb-0.5 text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg"
+          >
             Sign in
           </Link>
           <Link
             to="/register"
-            className="text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg"
+            className="link-underline pb-0.5 text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg"
           >
             Get started
           </Link>

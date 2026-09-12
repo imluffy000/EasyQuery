@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, Check } from 'lucide-react'
 
+import { PopIn, Reveal, Stagger, StaggerItem, SwapText } from '@/components/motion'
 import {
   Badge,
   Button,
@@ -14,6 +15,7 @@ import {
   SuccessState,
 } from '@/components/ui'
 import { ApiRequestError, api } from '@/lib/api'
+import { useFlash } from '@/lib/motion'
 import { useUnsavedGuard } from '@/lib/unsavedChanges'
 import { useAppStore } from '@/stores/useAppStore'
 import type { GlossaryTerm } from '@/types/api'
@@ -29,6 +31,9 @@ export function SettingsPage() {
   const [definition, setDefinition] = useState('')
   const [mapsTo, setMapsTo] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  // Add -> Adding -> Added. The button keeps its place after success (the
+  // form stays open for the next term), so it confirms on itself.
+  const [added, flashAdded] = useFlash<'added'>(1600)
 
   // A part-typed glossary entry is unsaved work: it exists nowhere else.
   useUnsavedGuard(
@@ -77,6 +82,7 @@ export function SettingsPage() {
       setDefinition('')
       setMapsTo('')
       setNotice('Glossary term added successfully.')
+      flashAdded('added')
       queryClient.invalidateQueries({ queryKey: ['glossary'] })
     },
   })
@@ -92,12 +98,12 @@ export function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-3xl space-y-3">
-        <header className="mb-1 border-b border-border pb-3">
+        <Reveal as="header" className="mb-1 border-b border-border pb-3">
           <p className="micro">Workspace</p>
           <h1 className="mt-0.5 text-lg font-medium text-fg">Settings</h1>
-        </header>
+        </Reveal>
 
-        <Panel title="Profile">
+        <Panel index={1} title="Profile">
           <div className="p-3">
             {userError ? (
               <ErrorState message="Could not load your profile." onRetry={() => void refetchUser()} />
@@ -116,7 +122,7 @@ export function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Workspace and role">
+        <Panel index={2} title="Workspace and role">
           <div className="space-y-3 p-3">
             {membershipsError ? (
               <ErrorState
@@ -164,7 +170,7 @@ export function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Appearance">
+        <Panel index={3} title="Appearance">
           <div className="w-48 p-3">
             <Select
               label="Theme"
@@ -179,6 +185,7 @@ export function SettingsPage() {
         </Panel>
 
         <Panel
+          index={4}
           title="Business glossary"
           actions={<span className="micro">Improves SQL accuracy</span>}
         >
@@ -225,8 +232,22 @@ export function SettingsPage() {
                     addTerm.mutate()
                   }}
                 >
-                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
-                  {addTerm.isPending ? 'Adding...' : 'Add term'}
+                  <SwapText state={addTerm.isPending ? 'adding' : (added ?? 'idle')}>
+                    {addTerm.isPending ? (
+                      'Adding...'
+                    ) : added ? (
+                      <>
+                        <PopIn>
+                          <Check className="h-3.5 w-3.5" aria-hidden />
+                        </PopIn>{' '}
+                        Added
+                      </>
+                    ) : (
+                      <>
+                        <BookOpen className="h-3.5 w-3.5" aria-hidden /> Add term
+                      </>
+                    )}
+                  </SwapText>
                 </Button>
 
                 {notice && (
@@ -256,10 +277,11 @@ export function SettingsPage() {
                   </div>
                 ) : (
                   glossary.length > 0 && (
-                    <ul className="mt-3 divide-y divide-border border border-border">
-                      {glossary.map((g) => (
+                    <Stagger as="ul" className="mt-3 divide-y divide-border border border-border">
+                      {glossary.map((g, i) => (
                         <GlossaryRow
                           key={g.id}
+                          index={i}
                           entry={g}
                           onRemove={() => removeTerm.mutate(g.id)}
                           removing={removeTerm.isPending && removeTerm.variables === g.id}
@@ -272,7 +294,7 @@ export function SettingsPage() {
                           }
                         />
                       ))}
-                    </ul>
+                    </Stagger>
                   )
                 )}
               </>
@@ -286,11 +308,13 @@ export function SettingsPage() {
 
 function GlossaryRow({
   entry,
+  index,
   onRemove,
   removing,
   removeError,
 }: {
   entry: GlossaryTerm
+  index: number
   onRemove: () => void
   removing: boolean
   removeError?: string
@@ -298,7 +322,7 @@ function GlossaryRow({
   const [confirming, setConfirming] = useState(false)
 
   return (
-    <li className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
+    <StaggerItem as="li" index={index} variant="fade" className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
       <span className="font-mono text-xs font-medium text-fg">{entry.term}</span>
       <span className="text-subtle" aria-hidden>
         =
@@ -317,6 +341,6 @@ function GlossaryRow({
         confirming={confirming}
         setConfirming={setConfirming}
       />
-    </li>
+    </StaggerItem>
   )
 }

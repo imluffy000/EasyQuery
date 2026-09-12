@@ -21,7 +21,8 @@ import {
 
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { DatabaseSelector } from '@/components/layout/DatabaseSelector'
-import { Button, ConfirmDialog, Spinner } from '@/components/ui'
+import { PageTransition, SwapText } from '@/components/motion'
+import { Button, ConfirmDialog, LoadingState } from '@/components/ui'
 import { api, tokens } from '@/lib/api'
 import { useGuardedNavigate } from '@/lib/unsavedChanges'
 import { cn } from '@/lib/utils'
@@ -37,7 +38,11 @@ const NAV = [
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
 ] as const
 
-const ITEM = 'flex h-8 items-center gap-2.5 px-2.5 cursor-pointer transition-colors border-l-2'
+const ITEM =
+  'group flex h-8 items-center gap-2.5 px-2.5 cursor-pointer transition-colors duration-base border-l-2'
+
+/** The icon leans toward its label on hover: a hint of where the click goes. */
+const ICON = 'h-4 w-4 shrink-0 transition-transform duration-base motion-safe:group-hover:translate-x-0.5'
 
 /**
  * A ctrl/cmd/shift click, or anything but the primary button, is a request to
@@ -124,7 +129,7 @@ export function AppShell() {
                     guardedNavigate(to)
                   }}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <Icon className={ICON} aria-hidden />
                   <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
                     {label}
                   </span>
@@ -145,7 +150,10 @@ export function AppShell() {
                 guardedNavigate('/settings')
               }}
             >
-              <Settings className="h-4 w-4 shrink-0" aria-hidden />
+              <Settings
+                className={cn(ICON, 'motion-safe:group-hover:translate-x-0 motion-safe:group-hover:rotate-45')}
+                aria-hidden
+              />
               <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
                 Settings
               </span>
@@ -179,14 +187,10 @@ export function AppShell() {
               and moving to another route clears it. The boundary is outside
               Suspense so it also catches a lazy chunk that fails to load. */}
           <ErrorBoundary resetKey={pathname}>
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center">
-                  <Spinner />
-                </div>
-              }
-            >
-              <Outlet />
+            <Suspense fallback={<LoadingState />}>
+              <PageTransition routeKey={pathname}>
+                <Outlet />
+              </PageTransition>
             </Suspense>
           </ErrorBoundary>
         </main>
@@ -236,7 +240,10 @@ function TopBar() {
         title={`Theme: ${theme}`}
         aria-label={`Theme: ${theme}. Activate to change.`}
       >
-        <ThemeIcon className="h-4 w-4" aria-hidden />
+        {/* The new icon slides in, so the change registers at a glance. */}
+        <SwapText state={theme}>
+          <ThemeIcon className="h-4 w-4" aria-hidden />
+        </SwapText>
       </Button>
       <Button
         size="sm"

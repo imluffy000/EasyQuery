@@ -8,9 +8,11 @@
 
 import { useEffect, useState } from 'react'
 import Editor, { type Monaco } from '@monaco-editor/react'
-import { Check, Copy, X } from 'lucide-react'
+import { Check, ChevronRight, Copy, X } from 'lucide-react'
 
+import { Collapse, Reveal, SwapText } from '@/components/motion'
 import { Badge, Button } from '@/components/ui'
+import { useFlash } from '@/lib/motion'
 import { cn, formatDuration, formatNumber } from '@/lib/utils'
 import type { ChatResponse } from '@/types/api'
 
@@ -90,25 +92,49 @@ export function SqlViewer({
   )
 }
 
+/**
+ * Copy -> Copied, or Copy -> Copy failed. The confirmation waits for the
+ * clipboard to accept the text: a tick shown before the write resolves would
+ * claim a copy that may not have happened (the API rejects without focus or
+ * permission).
+ */
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
+  const [outcome, flash] = useFlash<'copied' | 'failed'>(1500)
+
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      flash('copied')
+    } catch {
+      flash('failed')
+    }
+  }
+
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      title="Copy SQL"
-      onClick={() => {
-        navigator.clipboard?.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-    >
-      {copied ? (
-        <Check className="h-3.5 w-3.5 text-ok" aria-hidden />
-      ) : (
-        <Copy className="h-3.5 w-3.5" aria-hidden />
-      )}
-    </Button>
+    <>
+      <Button size="sm" variant="ghost" title="Copy SQL" onClick={() => void copy()}>
+        <SwapText state={outcome ?? 'idle'}>
+          {outcome === 'copied' ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-ok" aria-hidden /> Copied
+            </>
+          ) : outcome === 'failed' ? (
+            <>
+              <X className="h-3.5 w-3.5 text-danger" aria-hidden /> Copy failed
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+              <span className="sr-only">Copy SQL</span>
+            </>
+          )}
+        </SwapText>
+      </Button>
+      <span role="status" className="sr-only">
+        {outcome === 'copied' ? 'SQL copied to clipboard' : outcome === 'failed' ? 'Could not copy SQL' : ''}
+      </span>
+    </>
   )
 }
 
@@ -130,13 +156,17 @@ export function SqlDisclosure({ response }: { response: ChatResponse }) {
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="px-1.5 text-2xs font-medium text-muted cursor-pointer hover:text-fg"
+          className="group inline-flex items-center gap-1 px-1.5 text-2xs font-medium text-muted cursor-pointer transition-colors hover:text-fg"
         >
+          <ChevronRight
+            className={cn('h-3 w-3 transition-transform duration-base', open && 'rotate-90')}
+            aria-hidden
+          />
           {open ? 'Hide SQL' : 'View SQL'}
         </button>
 
         {open && (
-          <>
+          <Reveal variant="fade" className="flex items-center gap-1">
             <div className="mx-1 h-4 w-px bg-border" aria-hidden />
             {(['executed', 'generated'] as const).map((key) => (
               <button
@@ -144,7 +174,7 @@ export function SqlDisclosure({ response }: { response: ChatResponse }) {
                 onClick={() => setTab(key)}
                 aria-pressed={tab === key}
                 className={cn(
-                  'border-b-2 px-1.5 py-0.5 text-2xs uppercase tracking-[0.08em] cursor-pointer transition-colors',
+                  'border-b-2 px-1.5 py-0.5 text-2xs uppercase tracking-[0.08em] cursor-pointer transition-colors duration-base',
                   tab === key
                     ? 'border-accent text-fg'
                     : 'border-transparent text-subtle hover:text-fg',
@@ -158,27 +188,28 @@ export function SqlDisclosure({ response }: { response: ChatResponse }) {
                 rewritten by guard
               </Badge>
             )}
-          </>
+          </Reveal>
         )}
 
         <div className="flex-1" />
         {open && <CopyButton text={current} />}
       </div>
 
-      {open && (
-        <>
-          <SqlViewer sql={current} height={Math.min(220, 40 + current.split('\n').length * 19)} />
-          {response.warnings.length > 0 && (
-            <ul className="border-t border-border px-2.5 py-1.5">
-              {response.warnings.map((w, i) => (
-                <li key={i} className="text-2xs text-warn">
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+      {/* The tab switch deliberately does not animate the editor: keying it
+          would tear down and rebuild Monaco on every click. The tab rule's
+          colour transition carries that change. */}
+      <Collapse open={open}>
+        <SqlViewer sql={current} height={Math.min(220, 40 + current.split('\n').length * 19)} />
+        {response.warnings.length > 0 && (
+          <ul className="border-t border-border px-2.5 py-1.5">
+            {response.warnings.map((w, i) => (
+              <li key={i} className="text-2xs text-warn">
+                {w}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Collapse>
     </div>
   )
 }
@@ -215,7 +246,11 @@ export function QueryDetailsDrawer({
   const cost = response.cost
 
   return (
-    <aside
+    // Slides in from the edge it is attached to, so it reads as a panel
+    // opening beside the answer rather than a new page.
+    <Reveal
+      as="aside"
+      variant="fromEdge"
       className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col overflow-hidden
                  border-l border-border-strong bg-surface shadow-popover
                  lg:static lg:z-auto lg:w-96 lg:max-w-none lg:shrink-0 lg:shadow-none"
@@ -284,7 +319,7 @@ export function QueryDetailsDrawer({
           </section>
         )}
       </div>
-    </aside>
+    </Reveal>
   )
 }
 

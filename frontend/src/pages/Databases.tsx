@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Database, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react'
+import { m } from 'motion/react'
+import { Check, Database, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react'
 
 import { statusTone } from '@/components/layout/DatabaseSelector'
+import { PopIn, Reveal, Stagger, StaggerItem, SwapText } from '@/components/motion'
 import {
   AsyncBoundary,
   Badge,
@@ -13,6 +15,8 @@ import {
   EmptyState,
   ErrorState,
   Input,
+  MODAL_PANEL_MOTION,
+  ModalLayer,
   Select,
   Skeleton,
   StatusDot,
@@ -20,6 +24,7 @@ import {
   useModalFocus,
 } from '@/components/ui'
 import { ApiRequestError, api } from '@/lib/api'
+import { DISTANCE, DURATION, EASE_OUT, useFlash, usePrefersReducedMotion } from '@/lib/motion'
 import { useRequestLeave, useUnsavedGuard } from '@/lib/unsavedChanges'
 import { cn, formatRelative } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
@@ -175,7 +180,10 @@ export function DatabasesPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-4xl">
-        <header className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+        <Reveal
+          as="header"
+          className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3"
+        >
           <div>
             <p className="micro">Connections</p>
             <h1 className="mt-0.5 text-lg font-medium text-fg">Databases</h1>
@@ -183,10 +191,14 @@ export function DatabasesPage() {
               Connections are stored with encrypted credentials and queried read-only.
             </p>
           </div>
-          <Button variant="primary" onClick={() => setWizardOpen(true)}>
-            <Plug className="h-3.5 w-3.5" aria-hidden /> Connect database
+          <Button variant="primary" className="group" onClick={() => setWizardOpen(true)}>
+            <Plug
+              className="h-3.5 w-3.5 transition-transform duration-base motion-safe:group-hover:rotate-12"
+              aria-hidden
+            />{' '}
+            Connect database
           </Button>
-        </header>
+        </Reveal>
 
         {notice && (
           <div className="mb-3">
@@ -226,9 +238,9 @@ export function DatabasesPage() {
             </div>
           }
         >
-          <ul className="space-y-2">
-            {databases.map((db) => (
-              <li key={db.id}>
+          <Stagger as="ul" className="space-y-2">
+            {databases.map((db, i) => (
+              <StaggerItem as="li" key={db.id} index={i}>
                 <ConnectionCard
                   db={db}
                   syncing={sync.isPending && sync.variables === db.id}
@@ -241,13 +253,15 @@ export function DatabasesPage() {
                   }
                   testResult={test.data && test.variables === db.id ? test.data : null}
                   onSelect={() => setDatabase(db.id)}
-                  onSync={() => sync.mutate(db.id)}
-                  onTest={() => test.mutate(db.id)}
+                  onSync={(done) => sync.mutate(db.id, { onSettled: (_data, err) => done(!err) })}
+                  onTest={(done) =>
+                    test.mutate(db.id, { onSettled: (data, err) => done(Boolean(data?.ok) && !err) })
+                  }
                   onRemove={() => remove.mutate(db.id)}
                 />
-              </li>
+              </StaggerItem>
             ))}
-          </ul>
+          </Stagger>
         </AsyncBoundary>
       </div>
 
@@ -280,14 +294,20 @@ function ConnectionCard({
   removeError?: string
   testResult: ConnectionTest | null
   onSelect: () => void
-  onSync: () => void
-  onTest: () => void
+  /** Each reports back whether the operation succeeded, for the button's own confirmation. */
+  onSync: (done: (ok: boolean) => void) => void
+  onTest: (done: (ok: boolean) => void) => void
   onRemove: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
+  // The icon on each action settles into the outcome for a moment: a tick when
+  // the server confirmed it, a cross when it did not. The written result below
+  // the card stays; this is only the at-a-glance echo on the control itself.
+  const [testOutcome, flashTest] = useFlash<'ok' | 'fail'>(1800)
+  const [syncOutcome, flashSync] = useFlash<'ok' | 'fail'>(1800)
 
   return (
-    <div className="panel p-3">
+    <div className="lift panel p-3">
       <div className="flex items-start gap-3">
         <div className="mt-1.5">
           <StatusDot tone={statusTone(db.status)} />
@@ -328,13 +348,20 @@ function ConnectionCard({
           {db.last_error && <p className="mt-1 text-2xs text-danger">{db.last_error}</p>}
 
           {testResult && (
-            <p className={cn('mt-1 text-2xs', testResult.ok ? 'text-ok' : 'text-danger')}>
+            // Keyed by the outcome so a re-test that changes the answer
+            // arrives visibly rather than overwriting the line in place.
+            <Reveal
+              as="p"
+              variant="fade"
+              key={`${testResult.ok}-${testResult.message}-${testResult.latency_ms}`}
+              className={cn('mt-1 text-2xs', testResult.ok ? 'text-ok' : 'text-danger')}
+            >
               {testResult.message}
               {testResult.server_version && ` · ${testResult.server_version}`}
               {testResult.latency_ms != null && ` · ${testResult.latency_ms}ms`}
               {testResult.is_read_only_role === false &&
                 ' · this role can write; a dedicated read-only role is recommended'}
-            </p>
+            </Reveal>
           )}
         </div>
 
@@ -342,22 +369,33 @@ function ConnectionCard({
           <Button
             size="sm"
             variant="ghost"
-            onClick={onTest}
-            loading={testing}
+            onClick={() => onTest((ok) => flashTest(ok ? 'ok' : 'fail'))}
+            disabled={testing}
+            aria-busy={testing || undefined}
             title="Test connection"
             aria-label={`Test connection to ${db.name}`}
           >
-            <Plug className="h-3.5 w-3.5" aria-hidden />
+            <ActionIcon busy={testing} outcome={testOutcome} icon={<Plug className="h-3.5 w-3.5" aria-hidden />} />
           </Button>
           <Button
             size="sm"
             variant="ghost"
-            onClick={onSync}
-            loading={syncing}
+            onClick={() => onSync((ok) => flashSync(ok ? 'ok' : 'fail'))}
+            disabled={syncing}
+            aria-busy={syncing || undefined}
             title="Sync schema"
             aria-label={`Sync schema for ${db.name}`}
           >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            {/* The refresh glyph itself turns while syncing: the icon already
+                means "refresh", so spinning it says "refreshing" without a
+                second, unrelated spinner beside it. */}
+            <ActionIcon
+              busy={false}
+              outcome={syncOutcome}
+              icon={
+                <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} aria-hidden />
+              }
+            />
           </Button>
           {/* Removing a connection is confirmed in a dialog rather than inline,
               because the reassurance that the external database is untouched
@@ -396,6 +434,40 @@ function ConnectionCard({
   )
 }
 
+/**
+ * An icon-only action's three looks: its glyph at rest, a spinner while the
+ * request runs, then the outcome for a moment. The button's aria-label names
+ * the action; the outcome is spoken by the written result it produces.
+ */
+function ActionIcon({
+  busy,
+  outcome,
+  icon,
+}: {
+  busy: boolean
+  outcome: 'ok' | 'fail' | null
+  icon: React.ReactNode
+}) {
+  const state = busy ? 'busy' : (outcome ?? 'idle')
+  return (
+    <SwapText state={state}>
+      {state === 'busy' ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      ) : state === 'ok' ? (
+        <PopIn>
+          <Check className="h-3.5 w-3.5 text-ok" aria-hidden />
+        </PopIn>
+      ) : state === 'fail' ? (
+        <PopIn>
+          <X className="h-3.5 w-3.5 text-danger" aria-hidden />
+        </PopIn>
+      ) : (
+        icon
+      )}
+    </SwapText>
+  )
+}
+
 const STEPS = ['Engine', 'Connection', 'Security', 'Test', 'Import'] as const
 
 function ConnectionWizard({
@@ -410,6 +482,14 @@ function ConnectionWizard({
   const queryClient = useQueryClient()
 
   const [step, setStep] = useState(0)
+  // Which way the last step change went, so the next step's content enters
+  // from the side the user is moving toward.
+  const [direction, setDirection] = useState<1 | -1>(1)
+  const goTo = (next: number) => {
+    setDirection(next < step ? -1 : 1)
+    setStep(next)
+  }
+  const reduced = usePrefersReducedMotion()
   const [error, setError] = useState<string | null>(null)
   const [test, setTest] = useState<ConnectionTest | null>(null)
   const [created, setCreated] = useState<DatabaseConnection | null>(null)
@@ -510,18 +590,21 @@ function ConnectionWizard({
     }
   }
 
+  // Idle -> Connecting -> Connected, or Connecting -> failed -> Retry. The
+  // label is the state in words; the written result below carries the detail.
+  const testState = busy && step === 3 ? 'connecting' : test?.ok ? 'connected' : test || (error && step === 3) ? 'retry' : 'idle'
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4 animate-fade-in"
-      onClick={(e) => e.target === e.currentTarget && requestClose()}
-    >
-      <div
+    <ModalLayer className="z-50" onBackdropClick={requestClose}>
+      <m.div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="wizard-title"
         tabIndex={-1}
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden border border-border-strong bg-surface shadow-popover"
+        {...MODAL_PANEL_MOTION}
+        initial={reduced ? false : MODAL_PANEL_MOTION.initial}
       >
         <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-elevated px-3">
           <h2 id="wizard-title" className="text-sm font-medium text-fg">
@@ -544,7 +627,7 @@ function ConnectionWizard({
             >
               <span
                 className={cn(
-                  'micro flex h-5 items-center gap-1 px-1.5',
+                  'micro flex h-5 items-center gap-1 px-1.5 transition-colors duration-base',
                   i === step
                     ? 'bg-accent font-semibold text-accent-fg'
                     : i < step
@@ -552,7 +635,11 @@ function ConnectionWizard({
                       : 'text-subtle',
                 )}
               >
-                {i < step && <Check className="h-2.5 w-2.5" aria-hidden />}
+                {i < step && (
+                  <PopIn>
+                    <Check className="h-2.5 w-2.5" aria-hidden />
+                  </PopIn>
+                )}
                 {label}
               </span>
               {i < STEPS.length - 1 && (
@@ -564,230 +651,269 @@ function ConnectionWizard({
           ))}
         </ol>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          {step === 0 && (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {(['postgres', 'supabase', 'mysql', 'sqlite'] as const).map((engine) => {
-                const supported = engine === 'postgres' || engine === 'supabase'
-                const selected = form.engine === engine
-                return (
-                  <button
-                    type="button"
-                    key={engine}
-                    disabled={!supported}
-                    aria-pressed={selected}
-                    onClick={() => {
-                      set('engine', engine)
-                      set('port', DEFAULT_PORTS[engine] ?? 5432)
-                    }}
-                    className={cn(
-                      'border p-3 text-left transition-colors',
-                      supported ? 'cursor-pointer hover:border-border-strong' : 'opacity-40',
-                      selected ? 'border-accent bg-accent/10' : 'border-border bg-surface',
-                    )}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium capitalize text-fg">{engine}</span>
-                      {/* Selection is not colour alone: aria-pressed for AT, a tick for everyone. */}
-                      {selected && <Check className="h-3.5 w-3.5 text-accent" aria-hidden />}
-                    </span>
-                    <span className="mt-0.5 block text-2xs text-subtle">
-                      {supported ? 'Supported' : 'Connector not yet registered'}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden p-4">
+          {/* Keyed by step: the new step's fields slide in from the direction
+              of travel. Enter only, so Next and Back respond immediately. */}
+          <m.div
+            key={step}
+            className="space-y-3"
+            initial={reduced ? false : { opacity: 0, x: direction * DISTANCE.lift * 1.5 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: DURATION.base, ease: EASE_OUT }}
+          >
+            {step === 0 && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {(['postgres', 'supabase', 'mysql', 'sqlite'] as const).map((engine) => {
+                  const supported = engine === 'postgres' || engine === 'supabase'
+                  const selected = form.engine === engine
+                  return (
+                    <button
+                      type="button"
+                      key={engine}
+                      disabled={!supported}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        set('engine', engine)
+                        set('port', DEFAULT_PORTS[engine] ?? 5432)
+                      }}
+                      className={cn(
+                        'border p-3 text-left',
+                        supported ? 'lift cursor-pointer hover:border-border-strong' : 'opacity-40',
+                        selected ? 'border-accent bg-accent/10' : 'border-border bg-surface',
+                      )}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium capitalize text-fg">{engine}</span>
+                        {/* Selection is not colour alone: aria-pressed for AT, a tick for everyone. */}
+                        {selected && (
+                          <PopIn>
+                            <Check className="h-3.5 w-3.5 text-accent" aria-hidden />
+                          </PopIn>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-2xs text-subtle">
+                        {supported ? 'Supported' : 'Connector not yet registered'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
 
-          {step === 1 && (
-            <>
-              <Input
-                label="Display name"
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="Production analytics"
-                error={fieldError('name')}
-              />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="sm:col-span-2">
+            {step === 1 && (
+              <>
+                <Input
+                  label="Display name"
+                  value={form.name}
+                  onChange={(e) => set('name', e.target.value)}
+                  placeholder="Production analytics"
+                  error={fieldError('name')}
+                />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Host"
+                      value={form.host}
+                      onChange={(e) => set('host', e.target.value)}
+                      error={fieldError('host')}
+                    />
+                  </div>
                   <Input
-                    label="Host"
-                    value={form.host}
-                    onChange={(e) => set('host', e.target.value)}
-                    error={fieldError('host')}
+                    label="Port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={form.port}
+                    onChange={(e) => set('port', Number(e.target.value))}
+                    error={fieldError('port')}
                   />
                 </div>
                 <Input
-                  label="Port"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={form.port}
-                  onChange={(e) => set('port', Number(e.target.value))}
-                  error={fieldError('port')}
+                  label="Database"
+                  value={form.database_name}
+                  onChange={(e) => set('database_name', e.target.value)}
+                  error={fieldError('database_name')}
                 />
-              </div>
-              <Input
-                label="Database"
-                value={form.database_name}
-                onChange={(e) => set('database_name', e.target.value)}
-                error={fieldError('database_name')}
-              />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Input
-                  label="Username"
-                  value={form.username}
-                  onChange={(e) => set('username', e.target.value)}
-                  error={fieldError('username')}
-                />
-                <Input
-                  label="Password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(e) => set('password', e.target.value)}
-                  error={fieldError('password')}
-                  hint={fieldError('password') ? undefined : 'Encrypted before it is stored.'}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Select
-                  label="SSL mode"
-                  value={form.ssl_mode}
-                  onChange={(e) => set('ssl_mode', e.target.value)}
-                >
-                  {['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'].map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  label="Environment"
-                  value={form.environment}
-                  onChange={(e) => set('environment', e.target.value)}
-                >
-                  {['development', 'staging', 'production'].map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </>
-          )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Input
+                    label="Username"
+                    value={form.username}
+                    onChange={(e) => set('username', e.target.value)}
+                    error={fieldError('username')}
+                  />
+                  <Input
+                    label="Password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={(e) => set('password', e.target.value)}
+                    error={fieldError('password')}
+                    hint={fieldError('password') ? undefined : 'Encrypted before it is stored.'}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Select
+                    label="SSL mode"
+                    value={form.ssl_mode}
+                    onChange={(e) => set('ssl_mode', e.target.value)}
+                  >
+                    {['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    label="Environment"
+                    value={form.environment}
+                    onChange={(e) => set('environment', e.target.value)}
+                  >
+                    {['development', 'staging', 'production'].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </>
+            )}
 
-          {step === 2 && (
-            <>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg">
-                <input
-                  type="checkbox"
-                  checked={form.read_only}
-                  onChange={(e) => set('read_only', e.target.checked)}
-                  className="h-3.5 w-3.5 cursor-pointer accent-accent"
-                />
-                Read-only mode
-              </label>
-              <p className="text-2xs text-subtle">
-                Recommended. Use a database role that only has SELECT, so the restriction holds
-                even if application checks are bypassed.
-              </p>
-              <Input
-                label="Allowed schemas"
-                value={form.allowed_schemas}
-                onChange={(e) => set('allowed_schemas', e.target.value)}
-                error={fieldError('allowed_schemas')}
-                hint="Comma-separated. Queries naming any other schema are rejected."
-              />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {step === 2 && (
+              <>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-fg">
+                  <input
+                    type="checkbox"
+                    checked={form.read_only}
+                    onChange={(e) => set('read_only', e.target.checked)}
+                    className="h-3.5 w-3.5 cursor-pointer accent-accent"
+                  />
+                  Read-only mode
+                </label>
+                <p className="text-2xs text-subtle">
+                  Recommended. Use a database role that only has SELECT, so the restriction holds
+                  even if application checks are bypassed.
+                </p>
                 <Input
-                  label="Query timeout (seconds)"
-                  type="number"
-                  min={1}
-                  value={form.query_timeout_seconds}
-                  onChange={(e) => set('query_timeout_seconds', Number(e.target.value))}
-                  error={fieldError('query_timeout_seconds')}
+                  label="Allowed schemas"
+                  value={form.allowed_schemas}
+                  onChange={(e) => set('allowed_schemas', e.target.value)}
+                  error={fieldError('allowed_schemas')}
+                  hint="Comma-separated. Queries naming any other schema are rejected."
                 />
-                <Input
-                  label="Maximum rows"
-                  type="number"
-                  min={1}
-                  value={form.max_rows}
-                  onChange={(e) => set('max_rows', Number(e.target.value))}
-                  error={fieldError('max_rows')}
-                />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Input
+                    label="Query timeout (seconds)"
+                    type="number"
+                    min={1}
+                    value={form.query_timeout_seconds}
+                    onChange={(e) => set('query_timeout_seconds', Number(e.target.value))}
+                    error={fieldError('query_timeout_seconds')}
+                  />
+                  <Input
+                    label="Maximum rows"
+                    type="number"
+                    min={1}
+                    value={form.max_rows}
+                    onChange={(e) => set('max_rows', Number(e.target.value))}
+                    error={fieldError('max_rows')}
+                  />
+                </div>
+              </>
+            )}
+
+            {step === 3 && (
+              <div className="space-y-3">
+                <Button variant="secondary" onClick={runTest} disabled={busy} aria-busy={busy || undefined}>
+                  <SwapText state={testState}>
+                    {testState === 'connecting' ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Connecting...
+                      </>
+                    ) : testState === 'connected' ? (
+                      <>
+                        <PopIn>
+                          <Check className="h-3.5 w-3.5 text-ok" aria-hidden />
+                        </PopIn>{' '}
+                        Connected
+                      </>
+                    ) : testState === 'retry' ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry connection
+                      </>
+                    ) : (
+                      <>
+                        <Plug className="h-3.5 w-3.5" aria-hidden /> Test connection
+                      </>
+                    )}
+                  </SwapText>
+                </Button>
+                {/* Only non-sensitive facts are echoed back: engine, name, server
+                    version and latency. Never the password or a full DSN. */}
+                {test?.ok && (
+                  <SuccessState
+                    message="Database connected successfully."
+                    details={
+                      <>
+                        <span className="capitalize">{form.engine}</span> · {form.database_name} ·
+                        connected
+                        {test.server_version && (
+                          <span className="mt-0.5 block font-mono">{test.server_version}</span>
+                        )}
+                        {test.latency_ms != null && (
+                          <span className="block font-mono tabular-nums">{test.latency_ms}ms</span>
+                        )}
+                        {test.is_read_only_role === false && (
+                          <span className="mt-1 block text-warn">
+                            This role can create objects. A dedicated read-only role is recommended.
+                          </span>
+                        )}
+                      </>
+                    }
+                  />
+                )}
+                {/* No retry button of its own: the test button directly above
+                    has already turned into "Retry connection". */}
+                {test && !test.ok && (
+                  <ErrorState
+                    message={
+                      test.message ||
+                      'Unable to connect to the database. Please check your connection details and try again.'
+                    }
+                  />
+                )}
               </div>
-            </>
-          )}
+            )}
 
-          {step === 3 && (
-            <div className="space-y-3">
-              <Button variant="secondary" onClick={runTest} loading={busy}>
-                <Plug className="h-3.5 w-3.5" aria-hidden />
-                {busy ? 'Connecting...' : 'Test connection'}
-              </Button>
-              {/* Only non-sensitive facts are echoed back: engine, name, server
-                  version and latency. Never the password or a full DSN. */}
-              {test?.ok && (
-                <SuccessState
-                  message="Database connected successfully."
-                  details={
-                    <>
-                      <span className="capitalize">{form.engine}</span> · {form.database_name} ·
-                      connected
-                      {test.server_version && (
-                        <span className="mt-0.5 block font-mono">{test.server_version}</span>
-                      )}
-                      {test.latency_ms != null && (
-                        <span className="block font-mono tabular-nums">{test.latency_ms}ms</span>
-                      )}
-                      {test.is_read_only_role === false && (
-                        <span className="mt-1 block text-warn">
-                          This role can create objects. A dedicated read-only role is recommended.
-                        </span>
-                      )}
-                    </>
-                  }
-                />
-              )}
-              {test && !test.ok && (
-                <ErrorState
-                  message={
-                    test.message ||
-                    'Unable to connect to the database. Please check your connection details and try again.'
-                  }
-                  onRetry={runTest}
-                />
-              )}
-            </div>
-          )}
-
-          {step === 4 && (
-            <div className="space-y-3">
-              {!syncResult ? (
-                <>
-                  <p className="text-xs text-muted">
-                    The schema is read once and cached, so questions do not pay for introspection.
-                  </p>
-                  <Button variant="primary" onClick={saveAndSync} loading={busy}>
-                    {busy ? 'Saving...' : 'Save and import schema'}
-                  </Button>
-                </>
-              ) : (
-                <SuccessState
-                  message="Database added successfully."
-                  details={
-                    <>
-                      <span className="capitalize">{created?.engine ?? form.engine}</span> ·{' '}
-                      {created?.name ?? form.name} · connected
-                      <span className="mt-0.5 block font-mono tabular-nums">{syncResult}</span>
-                    </>
-                  }
-                />
-              )}
-            </div>
-          )}
+            {step === 4 && (
+              <div className="space-y-3">
+                {!syncResult ? (
+                  <>
+                    <p className="text-xs text-muted">
+                      The schema is read once and cached, so questions do not pay for introspection.
+                    </p>
+                    {/* Saved is not a label here: on success the button gives way
+                        to the confirmation below, which names what was imported. */}
+                    <Button variant="primary" onClick={saveAndSync} loading={busy}>
+                      <SwapText state={busy ? 'saving' : 'idle'}>
+                        {busy ? 'Saving...' : 'Save and import schema'}
+                      </SwapText>
+                    </Button>
+                  </>
+                ) : (
+                  <SuccessState
+                    message="Database added successfully."
+                    details={
+                      <>
+                        <span className="capitalize">{created?.engine ?? form.engine}</span> ·{' '}
+                        {created?.name ?? form.name} · connected
+                        <span className="mt-0.5 block font-mono tabular-nums">{syncResult}</span>
+                      </>
+                    }
+                  />
+                )}
+              </div>
+            )}
+          </m.div>
 
           {error && <ErrorState message={error} />}
         </div>
@@ -796,7 +922,7 @@ function ConnectionWizard({
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            onClick={() => goTo(Math.max(0, step - 1))}
             disabled={step === 0}
           >
             Back
@@ -816,7 +942,7 @@ function ConnectionWizard({
                   return
                 }
                 setError(null)
-                setStep((s) => s + 1)
+                goTo(step + 1)
               }}
               disabled={step === 3 && !test?.ok}
             >
@@ -828,7 +954,7 @@ function ConnectionWizard({
             </Button>
           )}
         </footer>
-      </div>
-    </div>
+      </m.div>
+    </ModalLayer>
   )
 }

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark } from 'lucide-react'
 
 import { SqlViewer } from '@/components/chat/SqlPanel'
+import { Collapse, Reveal, Stagger, StaggerItem, SwapText } from '@/components/motion'
 import {
   AsyncBoundary,
   Badge,
@@ -95,7 +96,10 @@ export function SavedPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-4xl">
-        <header className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+        <Reveal
+          as="header"
+          className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3"
+        >
           <div>
             <p className="micro">Library</p>
             <h1 className="mt-0.5 text-lg font-medium text-fg">Saved queries</h1>
@@ -112,7 +116,7 @@ export function SavedPage() {
             <Bookmark className="h-3.5 w-3.5" aria-hidden />
             {creating ? 'Close draft' : 'New saved query'}
           </Button>
-        </header>
+        </Reveal>
 
         {notice && (
           <div className="mb-3">
@@ -120,7 +124,9 @@ export function SavedPage() {
           </div>
         )}
 
-        {creating && (
+        {/* The draft opens in place, pushing the list down rather than
+            appearing over it; closing folds it back the same way. */}
+        <Collapse open={creating}>
           <Panel title="New saved query" className="mb-3">
             <div className="space-y-3 p-3">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -162,7 +168,9 @@ export function SavedPage() {
                     create.mutate()
                   }}
                 >
-                  {create.isPending ? 'Saving...' : 'Save'}
+                  <SwapText state={create.isPending ? 'saving' : 'idle'}>
+                    {create.isPending ? 'Saving...' : 'Save'}
+                  </SwapText>
                 </Button>
                 <Button variant="ghost" onClick={() => requestLeave(discardDraft)}>
                   Cancel
@@ -170,7 +178,7 @@ export function SavedPage() {
               </div>
             </div>
           </Panel>
-        )}
+        </Collapse>
 
         {confirmingDestructive && (
           <ConfirmDialog
@@ -217,10 +225,11 @@ export function SavedPage() {
             </div>
           }
         >
-          <ul className="space-y-2">
-            {saved.map((q) => (
+          <Stagger as="ul" className="space-y-2">
+            {saved.map((q, i) => (
               <SavedRow
                 key={q.id}
+                index={i}
                 query={q}
                 onRemove={() => remove.mutate(q.id)}
                 removing={remove.isPending && remove.variables === q.id}
@@ -233,7 +242,7 @@ export function SavedPage() {
                 }
               />
             ))}
-          </ul>
+          </Stagger>
         </AsyncBoundary>
       </div>
     </div>
@@ -242,11 +251,13 @@ export function SavedPage() {
 
 function SavedRow({
   query,
+  index,
   onRemove,
   removing,
   removeError,
 }: {
   query: SavedQuery
+  index: number
   onRemove: () => void
   removing: boolean
   removeError?: string
@@ -254,7 +265,7 @@ function SavedRow({
   const [confirming, setConfirming] = useState(false)
 
   return (
-    <li className="panel p-3">
+    <StaggerItem as="li" index={index} className="lift panel p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -285,6 +296,6 @@ function SavedRow({
           />
         </div>
       </div>
-    </li>
+    </StaggerItem>
   )
 }

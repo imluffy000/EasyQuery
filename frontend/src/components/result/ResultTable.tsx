@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown, ArrowUp, Check, Download, Maximize2, Minimize2, Search } from 'lucide-react'
 
+import { PopIn } from '@/components/motion'
 import { Badge, Button } from '@/components/ui'
 import { cn, formatCell, formatDuration, formatNumber } from '@/lib/utils'
 import type { QueryResult } from '@/types/api'
@@ -22,6 +23,16 @@ import type { QueryResult } from '@/types/api'
 const ROW_HEIGHT = 28
 const MIN_WIDTH = 90
 const DEFAULT_WIDTH = 150
+
+/**
+ * Only the rows visible when a result first lands fade in, top to bottom.
+ * Rows are virtualized and remount as the table scrolls, so an animation tied
+ * to mounting would replay on every scroll; the intro is tied to the first
+ * paint of this result instead, and ends for good after INTRO_MS.
+ */
+const INTRO_ROWS = 12
+const INTRO_STEP_MS = 22
+const INTRO_MS = 700
 
 interface Props {
   result: QueryResult
@@ -36,6 +47,13 @@ export function ResultTable({ result, className }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fullscreenToggleRef = useRef<HTMLButtonElement>(null)
+  const [intro, setIntro] = useState(true)
+
+  // Each result gets its own table instance, so the intro belongs to mount.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIntro(false), INTRO_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const rows = useMemo(() => {
     let out = result.rows
@@ -265,8 +283,17 @@ export function ResultTable({ result, className }: Props) {
             {items.map((item) => {
               const row = rows[item.index]
               if (!row) return null
+              const introRow = intro && item.index < INTRO_ROWS
               return (
-                <tr key={item.key} aria-rowindex={item.index + 2} style={{ height: ROW_HEIGHT }}>
+                <tr
+                  key={item.key}
+                  aria-rowindex={item.index + 2}
+                  className={introRow ? 'animate-row-in' : undefined}
+                  style={{
+                    height: ROW_HEIGHT,
+                    animationDelay: introRow ? `${item.index * INTRO_STEP_MS}ms` : undefined,
+                  }}
+                >
                   {result.columns.map((column) => {
                     const value = row[column]
                     const isNull = value === null || value === undefined
@@ -297,7 +324,11 @@ export function ResultTable({ result, className }: Props) {
                             typeof value === 'number' && 'justify-end text-right',
                           )}
                         >
-                          {isCopied && <Check className="h-3 w-3 shrink-0 text-accent" aria-hidden />}
+                          {isCopied && (
+                            <PopIn className="shrink-0">
+                              <Check className="h-3 w-3 text-accent" aria-hidden />
+                            </PopIn>
+                          )}
                           <span className="truncate">{text}</span>
                         </button>
                       </td>

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
@@ -25,9 +26,18 @@ export default defineConfig({
           monaco: ['@monaco-editor/react'],
           charts: ['recharts'],
           vendor: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          // The animation runtime changes far less often than app code, so it
+          // caches on its own. GSAP is deliberately absent: it is imported
+          // on demand by the landing page and gets its own lazy chunk.
+          motion: ['motion/react'],
         },
       },
     },
     chunkSizeWarningLimit: 700,
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
   },
 })

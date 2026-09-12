@@ -12,6 +12,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
+  // `hover:` only applies on devices that can genuinely hover. Without this a
+  // tap on a touch screen leaves the hover style stuck on until the next tap.
+  future: { hoverOnlyWhenSupported: true },
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -71,17 +74,42 @@ export default {
         // the plane: popovers and the modal panel.
         popover: '0 8px 24px -6px rgb(var(--scrim) / 0.28), 0 0 0 1px rgb(var(--border-strong))',
       },
-      transitionDuration: { DEFAULT: '120ms' },
+      // Motion tokens. Mirrors DURATION and EASE_OUT in src/lib/motion.ts;
+      // change the two together so CSS and Motion keep one rhythm.
+      transitionDuration: { DEFAULT: '120ms', fast: '140ms', base: '220ms', slow: '360ms' },
+      transitionTimingFunction: {
+        DEFAULT: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        out: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'slide-up': {
           from: { opacity: '0', transform: 'translateY(3px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        // Popover arriving from its trigger: a short drop plus a hair of scale.
+        'pop-down': {
+          from: { opacity: '0', transform: 'translateY(-4px) scale(0.98)' },
+          to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        // Result rows. Opacity only: a transform on <tr> is unreliable across
+        // engines, and the stagger alone carries the sense of arrival.
+        'row-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        // One ring expanding off a status dot when its status changes.
+        'ping-once': {
+          from: { opacity: '0.55', transform: 'scale(1)' },
+          to: { opacity: '0', transform: 'scale(3)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 120ms ease-out',
         'slide-up': 'slide-up 150ms ease-out',
+        'pop-down': 'pop-down 160ms cubic-bezier(0.22, 1, 0.36, 1)',
+        'row-in': 'row-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both',
+        'ping-once': 'ping-once 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
+        // Waits before showing, so a load that finishes quickly never flashes
+        // a spinner at all.
+        'fade-in-delayed': 'fade-in 220ms ease-out 300ms both',
       },
     },
   },

@@ -10,8 +10,9 @@
 
 import { useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, Key, Link2, Search, Table2 } from 'lucide-react'
+import { ChevronDown, Key, Link2, Search, Table2 } from 'lucide-react'
 
+import { Reveal } from '@/components/motion'
 import { AsyncBoundary, Badge, EmptyState, Panel, Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn, formatCompact, formatRelative } from '@/lib/utils'
@@ -144,11 +145,17 @@ export function SchemaPage() {
                     className="micro flex w-full items-center gap-1 px-1.5 py-1
                                cursor-pointer transition-colors hover:text-fg"
                   >
-                    {isCollapsed ? (
-                      <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
-                    ) : (
-                      <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
-                    )}
+                    {/* One chevron that turns, rather than two that swap. The
+                        group itself opens instantly: a schema can hold hundreds
+                        of tables, and animating that height would reflow the
+                        whole tree on every frame. */}
+                    <ChevronDown
+                      className={cn(
+                        'h-3 w-3 shrink-0 transition-transform duration-base',
+                        isCollapsed && '-rotate-90',
+                      )}
+                      aria-hidden
+                    />
                     <span className="truncate">{schema.name}</span>
                     <span className="ml-auto font-mono normal-case tracking-normal">
                       {tables.length}
@@ -168,7 +175,7 @@ export function SchemaPage() {
                               aria-current={isSelected ? true : undefined}
                               className={cn(
                                 'flex w-full items-center gap-1.5 px-1.5 py-1 text-left',
-                                'border-l-2 text-xs cursor-pointer transition-colors',
+                                'border-l-2 text-xs cursor-pointer transition-colors duration-base',
                                 isSelected
                                   ? 'border-accent bg-elevated text-fg'
                                   : 'border-transparent text-muted hover:bg-elevated hover:text-fg',
@@ -207,7 +214,9 @@ export function SchemaPage() {
             description="Choose a table to see its columns, keys, indexes, and relationships."
           />
         ) : (
-          <TableDetail table={table} />
+          // Keyed by table, so choosing another one visibly replaces the
+          // detail instead of rewriting it in place.
+          <TableDetail key={selected} table={table} />
         )}
       </div>
     </div>
@@ -217,7 +226,7 @@ export function SchemaPage() {
 function TableDetail({ table }: { table: TableMeta }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <header className="border-b border-border pb-3">
+      <Reveal as="header" variant="fade" className="border-b border-border pb-3">
         <p className="micro">Table</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <h1 className="font-mono text-lg text-fg">{table.name}</h1>
@@ -229,9 +238,9 @@ function TableDetail({ table }: { table: TableMeta }) {
           <span aria-hidden>·</span>
           <span className="tabular-nums">~{formatCompact(table.estimated_rows ?? 0)} rows</span>
         </p>
-      </header>
+      </Reveal>
 
-      <Panel title="Columns" bodyClassName="overflow-x-auto">
+      <Panel index={1} title="Columns" bodyClassName="overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
@@ -271,7 +280,7 @@ function TableDetail({ table }: { table: TableMeta }) {
       </Panel>
 
       {table.foreign_keys.length > 0 && (
-        <Panel title="Relationships">
+        <Panel index={2} title="Relationships">
           <ul className="divide-y divide-border">
             {table.foreign_keys.map((fk) => (
               <li
@@ -294,7 +303,7 @@ function TableDetail({ table }: { table: TableMeta }) {
       )}
 
       {table.indexes.length > 0 && (
-        <Panel title="Indexes">
+        <Panel index={3} title="Indexes">
           <ul className="divide-y divide-border">
             {table.indexes.map((ix) => (
               <li key={ix.name} className="flex items-center gap-2 px-3 py-1.5 font-mono text-xs">

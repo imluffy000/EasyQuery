@@ -162,7 +162,13 @@ export function DatabaseSelector() {
         ) : (
           <span className="text-muted">Select database</span>
         )}
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden />
+        <ChevronDown
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-subtle transition-transform duration-base',
+            open && 'rotate-180',
+          )}
+          aria-hidden
+        />
       </button>
 
       {open && (
@@ -170,7 +176,7 @@ export function DatabaseSelector() {
           id={panelId}
           role="dialog"
           aria-label="Choose a database"
-          className="absolute left-0 top-9 z-50 w-80 animate-slide-up overflow-hidden
+          className="absolute left-0 top-9 z-50 w-80 origin-top-left animate-pop-down overflow-hidden
                      border border-border-strong bg-surface shadow-popover"
         >
           <div className="flex items-center gap-2 border-b border-border bg-elevated px-2.5 py-2">
@@ -279,7 +285,10 @@ export function DatabaseSelector() {
                                    transition-colors hover:text-warn"
                       >
                         <Star
-                          className={cn('h-3.5 w-3.5', isFavorite && 'fill-warn text-warn')}
+                          className={cn(
+                            'h-3.5 w-3.5 transition-transform duration-base',
+                            isFavorite && 'fill-warn text-warn motion-safe:scale-110',
+                          )}
                           aria-hidden
                         />
                       </button>

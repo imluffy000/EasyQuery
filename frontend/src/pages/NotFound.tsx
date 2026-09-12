@@ -23,7 +23,7 @@ export function NotFoundPage() {
       actions={
         <Link
           to={home}
-          className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-colors hover:bg-accent/90"
+          className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-[background-color,transform] duration-fast hover:bg-accent/90 active:scale-[0.97]"
         >
           {signedIn ? 'Back to dashboard' : 'Back to home'}
         </Link>

@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Search, ShieldAlert } from 'lucide-react'
 
 import { SqlViewer } from '@/components/chat/SqlPanel'
+import { Collapse, Reveal, Stagger, StaggerItem } from '@/components/motion'
 import { Badge, EmptyState, ErrorState, Select, Skeleton } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn, dayBucket, formatDuration, formatNumber, formatRelative } from '@/lib/utils'
@@ -50,7 +51,14 @@ export function HistoryPage() {
       if (list) list.push(record)
       else buckets.set(key, [record])
     }
-    return [...buckets.entries()]
+    // Each group carries where it starts in the page's overall order: one
+    // position for its heading, then one per row.
+    let start = 0
+    return [...buckets.entries()].map(([bucket, records]) => {
+      const entry = [bucket, records, start] as const
+      start += records.length + 1
+      return entry
+    })
   }, [data])
 
   const filtered = Boolean(search || status)
@@ -58,13 +66,13 @@ export function HistoryPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-4xl">
-        <header className="mb-4 border-b border-border pb-3">
+        <Reveal as="header" className="mb-4 border-b border-border pb-3">
           <p className="micro">Workspace</p>
           <h1 className="mt-0.5 text-xl font-medium text-fg">Query history</h1>
           <p className="mt-0.5 text-xs text-muted">Every question asked in this workspace.</p>
-        </header>
+        </Reveal>
 
-        <div className="mb-3 flex gap-2">
+        <Reveal index={1} className="mb-3 flex gap-2">
           <div className="flex h-8 flex-1 items-center gap-2 border border-border-control bg-surface px-2.5 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
             <Search className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden />
             <input
@@ -89,7 +97,7 @@ export function HistoryPage() {
               <option value="needs_clarification">Needs clarification</option>
             </Select>
           </div>
-        </div>
+        </Reveal>
 
         {isError && (
           <ErrorState message="Could not load history." onRetry={() => void refetch()} />
@@ -126,14 +134,23 @@ export function HistoryPage() {
           </p>
         )}
 
-        {grouped.map(([bucket, records]) => (
-          <section key={bucket} className="mb-4">
-            <h2 className="micro mb-1.5 border-b border-border pb-1">{bucket}</h2>
+        {/* Positions run across day groups, so the page staggers as one list
+            and rows past the limit arrive with no delay at all. */}
+        {grouped.map(([bucket, records, start]) => (
+          <Stagger as="section" key={bucket} className="mb-4">
+            <StaggerItem
+              as="h2"
+              index={start}
+              variant="fade"
+              className="micro mb-1.5 border-b border-border pb-1"
+            >
+              {bucket}
+            </StaggerItem>
             <ul className="space-y-1.5">
-              {records.map((record) => {
+              {records.map((record, i) => {
                 const isOpen = expanded === record.id
                 return (
-                  <li key={record.id}>
+                  <StaggerItem as="li" key={record.id} index={start + i + 1}>
                     <div className="panel overflow-hidden">
                       <button
                         type="button"
@@ -167,7 +184,7 @@ export function HistoryPage() {
                         <Badge tone={STATUS_TONE[record.status] ?? 'neutral'}>{record.status}</Badge>
                       </button>
 
-                      {isOpen && (
+                      <Collapse open={isOpen}>
                         <div className="border-t border-border bg-sunken">
                           {record.error_message && (
                             <p className="border-b border-border px-3 py-2 font-mono text-2xs text-danger">
@@ -193,13 +210,13 @@ export function HistoryPage() {
                             />
                           )}
                         </div>
-                      )}
+                      </Collapse>
                     </div>
-                  </li>
+                  </StaggerItem>
                 )
               })}
             </ul>
-          </section>
+          </Stagger>
         ))}
       </div>
     </div>

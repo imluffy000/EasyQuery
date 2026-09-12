@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Github } from 'lucide-react'
+import { ArrowLeft, Github, Info } from 'lucide-react'
 
+import { Collapse, Reveal, SwapText } from '@/components/motion'
 import { Button, ErrorState, Input } from '@/components/ui'
 import { ApiRequestError, api, tokens } from '@/lib/api'
+import {
+  OAUTH_CANCELLED_NOTICE,
+  clearOAuthOrigin,
+  peekOAuthOrigin,
+  rememberOAuthOrigin,
+} from '@/lib/oauth'
 
 /**
  * Sign in and sign up are one form with two modes, but each mode is a real
@@ -17,7 +24,7 @@ export function LoginPage() {
   const mode: 'login' | 'register' = pathname === '/register' ? 'register' : 'login'
   // The backend sends a cancelled OAuth attempt here rather than to the error
   // page. Only a known flag is honoured, so nothing from the URL is rendered.
-  const cancelled = searchParams.get('notice') === 'oauth_cancelled'
+  const cancelled = searchParams.get('notice') === OAUTH_CANCELLED_NOTICE
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [organization, setOrganization] = useState('My Organization')
@@ -27,6 +34,31 @@ export function LoginPage() {
   // it happens. Latch which provider is going so a second click cannot start
   // a second authorization round trip.
   const [redirecting, setRedirecting] = useState<'google' | 'github' | null>(null)
+
+  // The backend sends every cancellation to /login. If it began on the
+  // sign-up form, put the user back there -- same notice, same history entry.
+  // Only that one direction: this page stays mounted across the move, so the
+  // effect runs again on /register with the origin already consumed, and must
+  // not read the /login default as a reason to send the user back.
+  useEffect(() => {
+    if (!cancelled) return
+    const origin = peekOAuthOrigin()
+    clearOAuthOrigin()
+    if (origin === '/register' && pathname === '/login') {
+      navigate(`/register?notice=${OAUTH_CANCELLED_NOTICE}`, { replace: true })
+    }
+  }, [cancelled, pathname, navigate])
+
+  // Pressing Back on the provider's page can restore this page from the
+  // back/forward cache exactly as it was left: latched on "Redirecting...",
+  // with both buttons disabled. That is a cancellation too, so release it.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(null)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,21 +87,30 @@ export function LoginPage() {
   const socialSignIn = (provider: 'google' | 'github') => {
     if (redirecting) return
     setRedirecting(provider)
+    rememberOAuthOrigin(pathname)
     window.location.assign(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/auth/oauth/${provider}/start`)
   }
+
+  const submitState = busy ? `${mode}-busy` : mode
 
   return (
     <div className="flex h-full items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
-        <Link
-          to="/"
-          className="mb-4 inline-flex items-center gap-1.5 text-2xs uppercase tracking-[0.1em]
-                     text-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft className="h-3 w-3" aria-hidden /> Back to home
-        </Link>
+        <Reveal index={0} variant="fade">
+          <Link
+            to="/"
+            className="group mb-4 inline-flex items-center gap-1.5 text-2xs uppercase tracking-[0.1em]
+                       text-muted transition-colors hover:text-fg"
+          >
+            <ArrowLeft
+              className="h-3 w-3 transition-transform duration-base motion-safe:group-hover:-translate-x-0.5"
+              aria-hidden
+            />{' '}
+            Back to home
+          </Link>
+        </Reveal>
 
-        <div className="mb-5 flex items-center gap-2.5">
+        <Reveal index={1} className="mb-5 flex items-center gap-2.5">
           <div
             className="grid h-8 w-8 shrink-0 place-items-center border border-accent bg-accent
                        font-mono text-xs font-semibold text-accent-fg"
@@ -81,22 +122,25 @@ export function LoginPage() {
             <h1 className="text-sm font-medium text-fg">EasyQuery</h1>
             <p className="text-2xs text-subtle">Natural-language analytics over your databases</p>
           </div>
+        </Reveal>
 
-        </div>
-
-        <form onSubmit={submit} className="panel">
-          <header className="flex h-8 items-center border-b border-border bg-elevated px-3">
-            <h2 className="micro">{mode === 'login' ? 'Sign in' : 'Create account'}</h2>
+        <Reveal as="form" index={2} onSubmit={submit} className="panel">
+          <header className="flex h-8 items-center overflow-hidden border-b border-border bg-elevated px-3">
+            <h2 className="micro">
+              <SwapText state={mode}>{mode === 'login' ? 'Sign in' : 'Create account'}</SwapText>
+            </h2>
           </header>
 
           <div className="space-y-3 p-4">
             {cancelled && (
-              <p
+              <Reveal
+                as="p"
                 role="status"
-                className="border border-border bg-elevated p-3 text-xs text-muted"
+                className="flex items-start gap-2 border border-border bg-elevated p-3 text-xs text-muted"
               >
+                <Info className="mt-px h-3.5 w-3.5 shrink-0 text-info" aria-hidden />
                 Sign-in was cancelled. Please try again.
-              </p>
+              </Reveal>
             )}
             <Button
               type="button"
@@ -142,14 +186,19 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {mode === 'register' && (
-              <Input
-                name="organization"
-                label="Organization"
-                value={organization}
-                onChange={(e) => setOrganization(e.target.value)}
-              />
-            )}
+            {/* The extra field opens in place rather than popping in, so the
+                submit button slides down instead of jumping. The space-y
+                margin would sit outside the collapsing box, so it is inside. */}
+            <Collapse open={mode === 'register'} className="!mt-0">
+              <div className="pt-3">
+                <Input
+                  name="organization"
+                  label="Organization"
+                  value={organization}
+                  onChange={(e) => setOrganization(e.target.value)}
+                />
+              </div>
+            </Collapse>
 
             {error && <ErrorState message={error} />}
 
@@ -160,25 +209,27 @@ export function LoginPage() {
               disabled={redirecting !== null}
               className="w-full"
             >
-              {busy
-                ? mode === 'login'
-                  ? 'Signing in...'
-                  : 'Creating account...'
-                : mode === 'login'
-                  ? 'Sign in'
-                  : 'Create account'}
+              <SwapText state={submitState}>
+                {busy
+                  ? mode === 'login'
+                    ? 'Signing in...'
+                    : 'Creating account...'
+                  : mode === 'login'
+                    ? 'Sign in'
+                    : 'Create account'}
+              </SwapText>
             </Button>
 
-            <div className="border-t border-border pt-3">
+            <div className="border-t border-border pt-3 text-center">
               <Link
                 to={mode === 'login' ? '/register' : '/login'}
-                className="block w-full cursor-pointer text-center text-xs text-muted hover:text-fg"
+                className="link-underline cursor-pointer text-xs text-muted hover:text-fg"
               >
                 {mode === 'login' ? 'No account? Create one' : 'Already have an account? Sign in'}
               </Link>
             </div>
           </div>
-        </form>
+        </Reveal>
       </div>
     </div>
   )

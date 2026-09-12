@@ -150,7 +150,15 @@
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
       transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* In-page anchors glide; the browser still owns the scroll. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
     }
   }
 }
@@ -198,5 +206,47 @@
   /* Row of key/value readouts under a result — the "instrument panel". */
   .readout {
     @apply flex items-center gap-1.5 text-2xs font-mono uppercase tracking-[0.08em] text-subtle;
+  }
+
+  /*
+   * Hover elevation for cards that act. The system has no card shadows, so
+   * "raised" is a two-pixel lift plus a heavier rule. Only on a real hovering
+   * pointer, and never under reduced motion. Keep it off anything that is
+   * merely informational: lifting a card that does nothing promises a click.
+   */
+  .lift {
+    transition-property: transform, border-color, background-color;
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .lift:hover {
+      border-color: rgb(var(--border-strong));
+    }
+  }
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    .lift:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  /* Underline that draws in from the left, for text links. Focus draws it
+   * too, so keyboard users get the same cue as a pointer. */
+  .link-underline {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    background-size: 0% 1px;
+    transition:
+      background-size 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 120ms;
+  }
+  .link-underline:focus-visible {
+    background-size: 100% 1px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .link-underline:hover {
+      background-size: 100% 1px;
+    }
   }
 }

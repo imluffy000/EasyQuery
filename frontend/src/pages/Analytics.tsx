@@ -26,6 +26,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { Reveal } from '@/components/motion'
 import { EmptyState, ErrorState, Panel, Select, Skeleton, Stat } from '@/components/ui'
 import { api } from '@/lib/api'
 import { formatCompact, formatDuration, formatNumber } from '@/lib/utils'
@@ -165,7 +166,10 @@ export function AnalyticsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto max-w-5xl">
-        <header className="mb-4 flex items-end justify-between gap-4 border-b border-border pb-3">
+        <Reveal
+          as="header"
+          className="mb-4 flex items-end justify-between gap-4 border-b border-border pb-3"
+        >
           <div>
             <p className="micro">Workspace</p>
             <h1 className="mt-0.5 text-xl font-medium text-fg">Analytics</h1>
@@ -187,33 +191,37 @@ export function AnalyticsPage() {
               ))}
             </Select>
           </div>
-        </header>
+        </Reveal>
 
         <section aria-labelledby="analytics-summary" className="mb-3">
           <h2 id="analytics-summary" className="micro mb-1.5">
             Summary
           </h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Queries today" value={formatNumber(s.queries_today)} />
+            <Stat index={1} label="Queries today" value={formatNumber(s.queries_today)} />
             <Stat
+              index={2}
               label="Success rate"
               value={`${s.success_rate}%`}
               tone={s.success_rate >= 95 ? 'ok' : s.success_rate >= 80 ? 'warn' : 'danger'}
             />
-            <Stat label="Avg latency" value={formatDuration(s.avg_latency_ms)} />
-            <Stat label="P95 latency" value={formatDuration(s.p95_latency_ms)} />
+            <Stat index={3} label="Avg latency" value={formatDuration(s.avg_latency_ms)} />
+            <Stat index={4} label="P95 latency" value={formatDuration(s.p95_latency_ms)} />
             <Stat
+              index={5}
               label="Clarification rate"
               value={`${s.clarification_rate}%`}
               sub="Questions the agent asked about"
             />
             <Stat
+              index={6}
               label="Correction rate"
               value={`${s.correction_rate}%`}
               sub="Queries needing SQL regeneration"
             />
-            <Stat label="Model spend" value={`$${s.llm_cost_usd.toFixed(4)}`} />
+            <Stat index={7} label="Model spend" value={`$${s.llm_cost_usd.toFixed(4)}`} />
             <Stat
+              index={8}
               label="Blocked / timeouts"
               value={`${s.blocked_count} / ${s.timeout_count}`}
               tone={s.blocked_count > 0 ? 'warn' : undefined}
@@ -222,7 +230,7 @@ export function AnalyticsPage() {
         </section>
 
         <div className="grid gap-3 lg:grid-cols-2">
-          <Panel title="Query volume">
+          <Panel index={2} when="inView" title="Query volume">
             {data.query_volume.length === 0 ? (
               <EmptyState
                 title="No queries in this period"
@@ -287,7 +295,7 @@ export function AnalyticsPage() {
             )}
           </Panel>
 
-          <Panel title="Latency distribution">
+          <Panel index={3} when="inView" title="Latency distribution">
             {data.latency_distribution.length === 0 ? (
               <EmptyState
                 title="No completed queries yet"
@@ -349,7 +357,7 @@ export function AnalyticsPage() {
             )}
           </Panel>
 
-          <Panel title="Status breakdown">
+          <Panel index={2} when="inView" title="Status breakdown">
             {Object.keys(data.status_breakdown).length === 0 ? (
               <EmptyState title="No outcomes recorded" />
             ) : (
@@ -379,7 +387,7 @@ export function AnalyticsPage() {
             )}
           </Panel>
 
-          <Panel title="Most queried tables">
+          <Panel index={3} when="inView" title="Most queried tables">
             {data.top_tables.length === 0 ? (
               <EmptyState title="No table usage recorded" />
             ) : (
