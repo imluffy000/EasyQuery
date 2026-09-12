@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { App } from '@/App'
+import { UnsavedChangesProvider } from '@/lib/unsavedChanges'
 import { applyTheme, useAppStore, watchSystemTheme } from '@/stores/useAppStore'
 import '@/index.css'
 
@@ -31,7 +32,10 @@ createRoot(container).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        {/* Inside the router: the guard navigates on the user's behalf. */}
+        <UnsavedChangesProvider>
+          <App />
+        </UnsavedChangesProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

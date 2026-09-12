@@ -13,13 +13,15 @@
 
 import {
   forwardRef,
+  useEffect,
   useId,
+  useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
 } from 'react'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -246,6 +248,37 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 }
 
 /**
+ * The counterpart to ErrorState, same shape and spacing. Confirmation is
+ * rendered rather than flashed so it survives a re-render and is still there
+ * for anyone who looks away -- and role="status" announces it once without
+ * stealing focus.
+ */
+export function SuccessState({
+  message,
+  details,
+  onDismiss,
+}: {
+  message: string
+  details?: ReactNode
+  onDismiss?: () => void
+}) {
+  return (
+    <div role="status" className="flex items-start gap-2.5 border border-ok/40 bg-ok/5 p-3">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ok" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-fg">{message}</p>
+        {details && <div className="mt-1 text-2xs text-muted">{details}</div>}
+      </div>
+      {onDismiss && (
+        <Button size="sm" variant="ghost" onClick={onDismiss} aria-label="Dismiss">
+          <X className="h-3 w-3" aria-hidden />
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/**
  * Async surface in one place: an error beats an empty state, an empty state
  * beats rendering nothing. Using this everywhere is what stops a failed
  * request from being presented as a legitimate zero.
@@ -373,6 +406,162 @@ export function ConfirmDelete({
       >
         Cancel
       </Button>
+    </div>
+  )
+}
+
+// --- Dialogs ----------------------------------------------------------------
+
+const FOCUSABLE = 'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'
+
+/**
+ * Everything `aria-modal="true"` promises but does not implement: initial
+ * focus, Escape to dismiss, a Tab loop that cannot leave the panel, and focus
+ * returned to whatever opened the dialog.
+ *
+ * Nesting note: listeners are registered on `document` in the capture phase,
+ * so for two open dialogs the outer one's handler runs first. `stopPropagation`
+ * does not silence a second listener on the same target, so an inner dialog
+ * still sees Escape -- the outer dialog is responsible for ignoring Escape
+ * while it has a child dialog on screen.
+ */
+export function useModalFocus(onClose: () => void) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // The handler is installed once, on mount. Reading onClose through a ref is
+  // what keeps it that way: if the effect depended on the prop it would tear
+  // down and re-run on every parent render, yanking focus back to the close
+  // button while the user was mid-field.
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+
+    const opener = document.activeElement as HTMLElement | null
+
+    const focusables = () =>
+      Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) =>
+          !el.hasAttribute('disabled') &&
+          el.getAttribute('aria-hidden') !== 'true' &&
+          (el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement),
+      )
+
+    // Initial focus. The panel itself is the fallback so focus is never left
+    // behind on the page underneath.
+    ;(focusables()[0] ?? panel).focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const items = focusables()
+      if (items.length === 0) {
+        event.preventDefault()
+        panel.focus()
+        return
+      }
+
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (!first || !last) return
+
+      const active = document.activeElement as HTMLElement | null
+      const inside = active ? panel.contains(active) : false
+
+      if (event.shiftKey && (!inside || active === first)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (!inside || active === last)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      // Restore focus to the trigger. A no-op if it has since unmounted.
+      opener?.focus?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return panelRef
+}
+
+/**
+ * One confirmation gesture for the whole app, so "are you sure" looks and
+ * behaves identically wherever it appears. Sits at z-60 so it can open on top
+ * of the connection wizard at z-50.
+ */
+export function ConfirmDialog({
+  title,
+  description,
+  confirmLabel,
+  cancelLabel = 'Cancel',
+  tone = 'primary',
+  pending,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  description?: ReactNode
+  confirmLabel: string
+  cancelLabel?: string
+  tone?: 'primary' | 'danger'
+  pending?: boolean
+  error?: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const panelRef = useModalFocus(onCancel)
+  const titleId = useId()
+  const descriptionId = useId()
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim/50 p-4 animate-fade-in"
+      onClick={(e) => e.target === e.currentTarget && !pending && onCancel()}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
+        className="w-full max-w-sm border border-border-strong bg-surface shadow-popover"
+      >
+        <header className="flex h-10 shrink-0 items-center border-b border-border bg-elevated px-3">
+          <h2 id={titleId} className="text-sm font-medium text-fg">
+            {title}
+          </h2>
+        </header>
+        <div className="space-y-3 p-4">
+          {description && (
+            <div id={descriptionId} className="text-xs leading-relaxed text-muted">
+              {description}
+            </div>
+          )}
+          {error && <ErrorState message={error} />}
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={onCancel} disabled={pending}>
+              {cancelLabel}
+            </Button>
+            <Button variant={tone} loading={pending} onClick={onConfirm}>
+              {confirmLabel}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

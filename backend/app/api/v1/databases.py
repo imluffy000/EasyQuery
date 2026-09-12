@@ -85,6 +85,32 @@ async def create_database(
 ) -> DatabaseConnectionOut:
     context.require(Permission.MANAGE_DATABASES)
 
+    # A connection's identity is what it points at, not what it is called, so
+    # two names for one target are still one connection. Checked here rather
+    # than relying on a unique index: existing workspaces may already hold
+    # duplicates created before this check, and a migration adding the
+    # constraint would fail on them.
+    duplicate = (
+        await session.execute(
+            select(DatabaseConnection.id).where(
+                DatabaseConnection.workspace_id == context.workspace.id,
+                DatabaseConnection.engine == payload.engine,
+                DatabaseConnection.host == payload.host,
+                DatabaseConnection.port == payload.port,
+                DatabaseConnection.database_name == payload.database_name,
+                DatabaseConnection.username == payload.username,
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "DATABASE_EXISTS",
+                "message": "This database connection already exists.",
+            },
+        )
+
     connection = DatabaseConnection(
         workspace_id=context.workspace.id,
         created_by=context.user.id,

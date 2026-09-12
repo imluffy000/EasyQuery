@@ -91,3 +91,24 @@ export function dayBucket(iso: string): string {
     year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
   })
 }
+
+/**
+ * Does this statement look like it writes?
+ *
+ * Used only to decide whether to ask for confirmation. The authority on what
+ * may actually run is the server's SQL guard, which parses the statement into
+ * an AST -- a keyword scan is the wrong place to enforce anything, and this
+ * one is deliberately for warning only. Comments and string literals are
+ * stripped first so a commented-out DROP, or the word 'delete' stored in a
+ * column, does not trip it.
+ */
+const DESTRUCTIVE_SQL =
+  /\b(delete|drop|truncate|update|insert|alter|grant|revoke|replace|merge|upsert)\b/i
+
+export function isDestructiveSql(sql: string): boolean {
+  const bare = sql
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/'(?:[^']|'')*'/g, " '' ")
+  return DESTRUCTIVE_SQL.test(bare)
+}

@@ -8,16 +8,22 @@ import {
   Badge,
   Button,
   ConfirmDelete,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   Input,
   Panel,
   Skeleton,
+  SuccessState,
 } from '@/components/ui'
 import { ApiRequestError, api } from '@/lib/api'
-import { formatRelative } from '@/lib/utils'
+import { useRequestLeave, useUnsavedGuard } from '@/lib/unsavedChanges'
+import { formatRelative, isDestructiveSql } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 import type { SavedQuery } from '@/types/api'
+
+/** The composer's starting value, so "has the user typed anything" is exact. */
+const INITIAL_SQL = 'SELECT '
 
 export function SavedPage() {
   const workspaceId = useAppStore((s) => s.workspaceId)
@@ -25,10 +31,26 @@ export function SavedPage() {
   const queryClient = useQueryClient()
 
   const [name, setName] = useState('')
-  const [sql, setSql] = useState('SELECT ')
+  const [sql, setSql] = useState(INITIAL_SQL)
   const [tags, setTags] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  // Destructive SQL is refused by the server's guard anyway; asking first
+  // turns a rejection the user did not expect into a choice they made.
+  const [confirmingDestructive, setConfirmingDestructive] = useState(false)
+
+  const dirty = creating && (name.trim() !== '' || sql !== INITIAL_SQL || tags.trim() !== '')
+  useUnsavedGuard('saved-query-form', dirty)
+  const requestLeave = useRequestLeave()
+
+  const discardDraft = () => {
+    setName('')
+    setSql(INITIAL_SQL)
+    setTags('')
+    setError(null)
+    setCreating(false)
+  }
 
   // isError is read, not just data: a failed fetch must not be presented as
   // "you have no saved queries".
@@ -52,11 +74,8 @@ export function SavedPage() {
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       }),
     onSuccess: () => {
-      setName('')
-      setSql('SELECT ')
-      setTags('')
-      setCreating(false)
-      setError(null)
+      discardDraft()
+      setNotice('Saved query created successfully.')
       queryClient.invalidateQueries({ queryKey: ['saved'] })
     },
     onError: (err) =>
@@ -67,7 +86,10 @@ export function SavedPage() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.queries.removeSaved(workspaceId!, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['saved'] }),
+    onSuccess: () => {
+      setNotice('Saved query deleted successfully.')
+      queryClient.invalidateQueries({ queryKey: ['saved'] })
+    },
   })
 
   return (
@@ -81,10 +103,22 @@ export function SavedPage() {
               Saved SQL is validated by the same guard that protects generated queries.
             </p>
           </div>
-          <Button variant="primary" onClick={() => setCreating((v) => !v)}>
-            <Bookmark className="h-3.5 w-3.5" aria-hidden /> New saved query
+          <Button
+            variant="primary"
+            onClick={() =>
+              creating ? requestLeave(discardDraft) : (setNotice(null), setCreating(true))
+            }
+          >
+            <Bookmark className="h-3.5 w-3.5" aria-hidden />
+            {creating ? 'Close draft' : 'New saved query'}
           </Button>
         </header>
+
+        {notice && (
+          <div className="mb-3">
+            <SuccessState message={notice} onDismiss={() => setNotice(null)} />
+          </div>
+        )}
 
         {creating && (
           <Panel title="New saved query" className="mb-3">
@@ -120,16 +154,44 @@ export function SavedPage() {
                   variant="primary"
                   loading={create.isPending}
                   disabled={!name.trim() || !sql.trim()}
-                  onClick={() => create.mutate()}
+                  onClick={() => {
+                    if (isDestructiveSql(sql)) {
+                      setConfirmingDestructive(true)
+                      return
+                    }
+                    create.mutate()
+                  }}
                 >
-                  Save
+                  {create.isPending ? 'Saving...' : 'Save'}
                 </Button>
-                <Button variant="ghost" onClick={() => setCreating(false)}>
+                <Button variant="ghost" onClick={() => requestLeave(discardDraft)}>
                   Cancel
                 </Button>
               </div>
             </div>
           </Panel>
+        )}
+
+        {confirmingDestructive && (
+          <ConfirmDialog
+            title="This query looks destructive"
+            description={
+              <>
+                This statement may permanently modify or delete database data. EasyQuery only ever
+                executes read-only SQL, so it will be rejected when it runs, but it can still be
+                saved. Do you want to continue?
+              </>
+            }
+            confirmLabel="Continue"
+            cancelLabel="Cancel"
+            tone="danger"
+            pending={create.isPending}
+            onConfirm={() => {
+              setConfirmingDestructive(false)
+              create.mutate()
+            }}
+            onCancel={() => setConfirmingDestructive(false)}
+          />
         )}
 
         <AsyncBoundary

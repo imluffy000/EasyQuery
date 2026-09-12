@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -20,8 +20,9 @@ import {
 } from 'lucide-react'
 
 import { DatabaseSelector } from '@/components/layout/DatabaseSelector'
-import { Button, Spinner } from '@/components/ui'
+import { Button, ConfirmDialog, Spinner } from '@/components/ui'
 import { api, tokens } from '@/lib/api'
+import { useGuardedNavigate } from '@/lib/unsavedChanges'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 
@@ -36,6 +37,17 @@ const NAV = [
 ] as const
 
 const ITEM = 'flex h-8 items-center gap-2.5 px-2.5 cursor-pointer transition-colors border-l-2'
+
+/**
+ * A ctrl/cmd/shift click, or anything but the primary button, is a request to
+ * open the link elsewhere. The current page is not being left, so the guard
+ * must stand aside and let the browser handle it.
+ */
+function opensElsewhere(event: React.MouseEvent): boolean {
+  return (
+    event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0
+  )
+}
 
 /**
  * Active state is a solid accent rule on the leading edge plus a ground
@@ -53,6 +65,10 @@ const itemClass = ({ isActive }: { isActive: boolean }) =>
 export function AppShell() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  // NavLink handles its own navigation on click, which would skip the unsaved
+  // work check. Keep NavLink for its styling and active state, but take the
+  // navigation itself over.
+  const guardedNavigate = useGuardedNavigate()
   const { pathname } = useLocation()
   const { data: user } = useQuery({ queryKey: ['me'], queryFn: api.auth.me, retry: false })
   const navigation = user?.is_superuser
@@ -98,6 +114,14 @@ export function AppShell() {
                   to={to}
                   title={label}
                   className={itemClass}
+                  onClick={(e) => {
+                    if (opensElsewhere(e)) return
+                    e.preventDefault()
+                    // Re-clicking the current page discards nothing, so it must
+                    // not ask.
+                    if (to === pathname) return
+                    guardedNavigate(to)
+                  }}
                 >
                   <Icon className="h-4 w-4 shrink-0" aria-hidden />
                   <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
@@ -109,7 +133,17 @@ export function AppShell() {
           </ul>
 
           <div className="flex flex-col border-t border-border py-1.5">
-            <NavLink to="/settings" title="Settings" className={itemClass}>
+            <NavLink
+              to="/settings"
+              title="Settings"
+              className={itemClass}
+              onClick={(e) => {
+                if (opensElsewhere(e)) return
+                e.preventDefault()
+                if (pathname === '/settings') return
+                guardedNavigate('/settings')
+              }}
+            >
               <Settings className="h-4 w-4 shrink-0" aria-hidden />
               <span className={cn('truncate', collapsed ? 'lg:hidden' : 'hidden lg:inline')}>
                 Settings
@@ -164,9 +198,15 @@ function TopBar() {
   const cycleTheme = () =>
     setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')
 
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+
+  // Signing out is confirmed, then unconditional: the stored token pair is
+  // cleared before navigating, so a cancelled dialog leaves the session
+  // exactly as it was and a confirmed one cannot leave a usable token behind.
   const signOut = () => {
     tokens.clear()
-    navigate('/', { replace: true })
+    setConfirmingSignOut(false)
+    navigate('/login', { replace: true })
   }
 
   return (
@@ -192,9 +232,26 @@ function TopBar() {
       >
         <ThemeIcon className="h-4 w-4" aria-hidden />
       </Button>
-      <Button size="sm" variant="ghost" onClick={signOut} title="Sign out" aria-label="Sign out">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setConfirmingSignOut(true)}
+        title="Sign out"
+        aria-label="Sign out"
+      >
         <LogOut className="h-4 w-4" aria-hidden />
       </Button>
+
+      {confirmingSignOut && (
+        <ConfirmDialog
+          title="Log out"
+          description="Are you sure you want to log out?"
+          confirmLabel="Log out"
+          cancelLabel="Cancel"
+          onConfirm={signOut}
+          onCancel={() => setConfirmingSignOut(false)}
+        />
+      )}
     </header>
   )
 }

@@ -11,8 +11,10 @@ import {
   Input,
   Panel,
   Select,
+  SuccessState,
 } from '@/components/ui'
 import { ApiRequestError, api } from '@/lib/api'
+import { useUnsavedGuard } from '@/lib/unsavedChanges'
 import { useAppStore } from '@/stores/useAppStore'
 import type { GlossaryTerm } from '@/types/api'
 
@@ -26,6 +28,13 @@ export function SettingsPage() {
   const [term, setTerm] = useState('')
   const [definition, setDefinition] = useState('')
   const [mapsTo, setMapsTo] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
+
+  // A part-typed glossary entry is unsaved work: it exists nowhere else.
+  useUnsavedGuard(
+    'glossary-form',
+    term.trim() !== '' || definition.trim() !== '' || mapsTo.trim() !== '',
+  )
 
   // Each of these reads isError as well as data. Without it a failed request
   // renders as an em-dash, which is indistinguishable from "not set".
@@ -67,13 +76,17 @@ export function SettingsPage() {
       setTerm('')
       setDefinition('')
       setMapsTo('')
+      setNotice('Glossary term added successfully.')
       queryClient.invalidateQueries({ queryKey: ['glossary'] })
     },
   })
 
   const removeTerm = useMutation({
     mutationFn: (id: string) => api.databases.removeTerm(workspaceId!, databaseId!, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['glossary'] }),
+    onSuccess: () => {
+      setNotice('Glossary term deleted successfully.')
+      queryClient.invalidateQueries({ queryKey: ['glossary'] })
+    },
   })
 
   return (
@@ -207,10 +220,20 @@ export function SettingsPage() {
                   variant="primary"
                   disabled={!term.trim() || !definition.trim()}
                   loading={addTerm.isPending}
-                  onClick={() => addTerm.mutate()}
+                  onClick={() => {
+                    setNotice(null)
+                    addTerm.mutate()
+                  }}
                 >
-                  <BookOpen className="h-3.5 w-3.5" aria-hidden /> Add term
+                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                  {addTerm.isPending ? 'Adding...' : 'Add term'}
                 </Button>
+
+                {notice && (
+                  <div className="mt-3">
+                    <SuccessState message={notice} onDismiss={() => setNotice(null)} />
+                  </div>
+                )}
 
                 {addTerm.isError && (
                   <div className="mt-3">

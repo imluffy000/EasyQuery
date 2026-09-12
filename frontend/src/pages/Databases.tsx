@@ -1,6 +1,6 @@
 /** Database list plus the multi-step connection wizard (spec section 10). */
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Database, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react'
 
@@ -9,15 +9,18 @@ import {
   AsyncBoundary,
   Badge,
   Button,
-  ConfirmDelete,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   Input,
   Select,
   Skeleton,
   StatusDot,
+  SuccessState,
+  useModalFocus,
 } from '@/components/ui'
 import { ApiRequestError, api } from '@/lib/api'
+import { useRequestLeave, useUnsavedGuard } from '@/lib/unsavedChanges'
 import { cn, formatRelative } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 import type { ConnectionTest, DatabaseConnection } from '@/types/api'
@@ -33,6 +36,98 @@ function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiRequestError ? err.message : fallback
 }
 
+/**
+ * A connection the backend already tells us is a duplicate. The endpoint
+ * answers 409 with DATABASE_EXISTS; the status check is the fallback for any
+ * other conflict so the message stays accurate either way.
+ */
+function isDuplicate(err: unknown): boolean {
+  return err instanceof ApiRequestError && (err.code === 'DATABASE_EXISTS' || err.status === 409)
+}
+
+interface ConnectionForm {
+  name: string
+  engine: string
+  environment: string
+  host: string
+  port: number
+  database_name: string
+  username: string
+  password: string
+  ssl_mode: string
+  read_only: boolean
+  allowed_schemas: string
+  query_timeout_seconds: number
+  max_rows: number
+}
+
+type FieldErrors = Partial<Record<keyof ConnectionForm, string>>
+
+/**
+ * Required-field validation, so obviously incomplete details are not spent on
+ * a network round trip and a connection timeout. Networked engines need a
+ * host and credentials; a file-backed engine does not, which is why this is
+ * keyed off the engine rather than applied flatly.
+ */
+function validateForm(form: ConnectionForm): FieldErrors {
+  const errors: FieldErrors = {}
+  const networked = form.engine !== 'sqlite'
+
+  if (!form.name.trim()) errors.name = 'Enter a name for this connection.'
+  if (!form.database_name.trim()) errors.database_name = 'Enter the database name.'
+
+  if (networked) {
+    if (!form.host.trim()) errors.host = 'Enter a host.'
+    const port = Number(form.port)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors.port = 'Enter a port between 1 and 65535.'
+    }
+    if (!form.username.trim()) errors.username = 'Enter a username.'
+    if (!form.password) errors.password = 'Enter a password.'
+  }
+
+  if (form.allowed_schemas.split(',').every((s) => !s.trim())) {
+    errors.allowed_schemas = 'Name at least one schema.'
+  }
+  const timeout = Number(form.query_timeout_seconds)
+  if (!Number.isInteger(timeout) || timeout < 1) {
+    errors.query_timeout_seconds = 'Enter a timeout of at least 1 second.'
+  }
+  const maxRows = Number(form.max_rows)
+  if (!Number.isInteger(maxRows) || maxRows < 1) errors.max_rows = 'Enter a row cap of at least 1.'
+
+  return errors
+}
+
+const INITIAL_FORM: ConnectionForm = {
+  name: '',
+  engine: 'postgres',
+  environment: 'development',
+  host: 'localhost',
+  port: 5432,
+  database_name: '',
+  username: '',
+  password: '',
+  ssl_mode: 'require',
+  read_only: true,
+  allowed_schemas: 'public',
+  query_timeout_seconds: 30,
+  max_rows: 10000,
+}
+
+const FORM_KEYS = Object.keys(INITIAL_FORM) as (keyof ConnectionForm)[]
+
+/** Nothing typed yet, so closing the wizard would discard nothing. */
+function isPristine(form: ConnectionForm): boolean {
+  return FORM_KEYS.every((key) => form[key] === INITIAL_FORM[key])
+}
+
+/** Fields each wizard step is responsible for, so Next only blocks on its own. */
+const STEP_FIELDS: Record<number, (keyof ConnectionForm)[]> = {
+  1: ['name', 'host', 'port', 'database_name', 'username', 'password'],
+  2: ['allowed_schemas', 'query_timeout_seconds', 'max_rows'],
+}
+
 export function DatabasesPage() {
   const workspaceId = useAppStore((s) => s.workspaceId)
   const setDatabase = useAppStore((s) => s.setDatabase)
@@ -45,9 +140,17 @@ export function DatabasesPage() {
     enabled: Boolean(workspaceId),
   })
 
+  // Feedback for actions whose own row disappears or does not visibly change
+  // when they succeed.
+  const [notice, setNotice] = useState<{ message: string; details?: string } | null>(null)
+
   const sync = useMutation({
     mutationFn: (id: string) => api.databases.sync(workspaceId!, id),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setNotice({
+        message: 'Schema refreshed successfully.',
+        details: `${result.tables} tables, ${result.columns} columns imported.`,
+      })
       queryClient.invalidateQueries({ queryKey: ['databases'] })
       queryClient.invalidateQueries({ queryKey: ['schema'] })
     },
@@ -60,7 +163,13 @@ export function DatabasesPage() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.databases.remove(workspaceId!, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['databases'] }),
+    onSuccess: () => {
+      setNotice({
+        message: 'Database connection removed.',
+        details: 'The external database itself was not changed.',
+      })
+      queryClient.invalidateQueries({ queryKey: ['databases'] })
+    },
   })
 
   return (
@@ -78,6 +187,16 @@ export function DatabasesPage() {
             <Plug className="h-3.5 w-3.5" aria-hidden /> Connect database
           </Button>
         </header>
+
+        {notice && (
+          <div className="mb-3">
+            <SuccessState
+              message={notice.message}
+              details={notice.details}
+              onDismiss={() => setNotice(null)}
+            />
+          </div>
+        )}
 
         <AsyncBoundary
           isLoading={isLoading}
@@ -132,7 +251,12 @@ export function DatabasesPage() {
         </AsyncBoundary>
       </div>
 
-      {wizardOpen && <ConnectionWizard onClose={() => setWizardOpen(false)} />}
+      {wizardOpen && (
+        <ConnectionWizard
+          onClose={() => setWizardOpen(false)}
+          onAdded={(message, details) => setNotice({ message, details })}
+        />
+      )}
     </div>
   )
 }
@@ -235,103 +359,52 @@ function ConnectionCard({
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           </Button>
-          {/* One delete gesture for the whole app: confirm, show pending, show failure. */}
-          <ConfirmDelete
-            label={`Delete ${db.name}`}
-            onConfirm={onRemove}
-            pending={removing}
-            error={removeError}
-            confirming={confirming}
-            setConfirming={setConfirming}
-          />
+          {/* Removing a connection is confirmed in a dialog rather than inline,
+              because the reassurance that the external database is untouched
+              is the whole point and does not fit on a button. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Remove ${db.name}`}
+            onClick={() => setConfirming(true)}
+          >
+            Remove
+          </Button>
         </div>
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Remove this database connection?"
+          description={
+            <>
+              This will remove <span className="font-medium text-fg">{db.name}</span> from your
+              EasyQuery account, along with its imported schema. It will not delete the actual
+              external database, and no data in it is changed.
+            </>
+          }
+          confirmLabel="Remove"
+          cancelLabel="Cancel"
+          tone="danger"
+          pending={removing}
+          error={removeError}
+          onConfirm={onRemove}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   )
 }
 
 const STEPS = ['Engine', 'Connection', 'Security', 'Test', 'Import'] as const
 
-const FOCUSABLE =
-  'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'
-
-/**
- * Everything `aria-modal="true"` promises but does not implement: initial
- * focus, Escape to dismiss, a Tab loop that cannot leave the panel, and focus
- * returned to whatever opened the dialog.
- */
-function useModalFocus(onClose: () => void) {
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  // The handler is installed once, on mount. Reading onClose through a ref is
-  // what keeps it that way: if the effect depended on the prop it would tear
-  // down and re-run on every parent render, yanking focus back to the close
-  // button while the user was mid-field.
-  const closeRef = useRef(onClose)
-  closeRef.current = onClose
-
-  useEffect(() => {
-    const panel = panelRef.current
-    if (!panel) return
-
-    const opener = document.activeElement as HTMLElement | null
-
-    const focusables = () =>
-      Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) =>
-          !el.hasAttribute('disabled') &&
-          el.getAttribute('aria-hidden') !== 'true' &&
-          (el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement),
-      )
-
-    // Initial focus. The panel itself is the fallback so focus is never left
-    // behind on the page underneath.
-    ;(focusables()[0] ?? panel).focus()
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        closeRef.current()
-        return
-      }
-      if (event.key !== 'Tab') return
-
-      const items = focusables()
-      if (items.length === 0) {
-        event.preventDefault()
-        panel.focus()
-        return
-      }
-
-      const first = items[0]
-      const last = items[items.length - 1]
-      if (!first || !last) return
-
-      const active = document.activeElement as HTMLElement | null
-      const inside = active ? panel.contains(active) : false
-
-      if (event.shiftKey && (!inside || active === first)) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && (!inside || active === last)) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown, true)
-      // Restore focus to the trigger. A no-op if it has since unmounted.
-      opener?.focus?.()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return panelRef
-}
-
-function ConnectionWizard({ onClose }: { onClose: () => void }) {
+function ConnectionWizard({
+  onClose,
+  onAdded,
+}: {
+  onClose: () => void
+  onAdded: (message: string, details?: string) => void
+}) {
   const workspaceId = useAppStore((s) => s.workspaceId)
   const setDatabase = useAppStore((s) => s.setDatabase)
   const queryClient = useQueryClient()
@@ -342,24 +415,30 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
   const [created, setCreated] = useState<DatabaseConnection | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Validation messages appear once a step has been submitted, not while the
+  // user is still filling in the first field of it.
+  const [attempted, setAttempted] = useState<Record<number, boolean>>({})
 
-  const panelRef = useModalFocus(onClose)
+  const [form, setForm] = useState<ConnectionForm>(INITIAL_FORM)
 
-  const [form, setForm] = useState({
-    name: '',
-    engine: 'postgres',
-    environment: 'development',
-    host: 'localhost',
-    port: 5432,
-    database_name: '',
-    username: '',
-    password: '',
-    ssl_mode: 'require',
-    read_only: true,
-    allowed_schemas: 'public',
-    query_timeout_seconds: 30,
-    max_rows: 10000,
-  })
+  // Typed-in connection details are unsaved work until the connection is
+  // actually created; after that there is nothing left to lose.
+  const dirty = !created && !isPristine(form)
+  useUnsavedGuard('database-wizard', dirty)
+  const requestLeave = useRequestLeave()
+
+  // Escape reaches the wizard before the confirmation dialog it opened, so
+  // asking again here would immediately re-open it; requestLeave is a no-op
+  // when nothing is dirty, which is the case once the connection is saved.
+  const requestClose = () => requestLeave(onClose)
+
+  const panelRef = useModalFocus(requestClose)
+
+  const errors = validateForm(form)
+  const stepErrors = (index: number): boolean =>
+    (STEP_FIELDS[index] ?? []).some((field) => errors[field])
+  const fieldError = (field: keyof ConnectionForm): string | undefined =>
+    attempted[step] ? errors[field] : undefined
 
   const payload = () => ({
     ...form,
@@ -375,19 +454,35 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
+  /** Guard both network calls, so incomplete details never reach the wire. */
+  const blockedByValidation = (): boolean => {
+    const incomplete = FORM_KEYS.some((field) => errors[field])
+    if (!incomplete) return false
+    setAttempted((prev) => ({ ...prev, 1: true, 2: true }))
+    setError('Some connection details are missing or invalid. Check the earlier steps.')
+    return true
+  }
+
   const runTest = async () => {
+    if (busy || blockedByValidation()) return
     setBusy(true)
     setError(null)
+    setTest(null)
     try {
       setTest(await api.databases.testNew(workspaceId!, payload()))
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Connection test failed.')
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : 'Unable to connect to the database. Please check your connection details and try again.',
+      )
     } finally {
       setBusy(false)
     }
   }
 
   const saveAndSync = async () => {
+    if (busy || blockedByValidation()) return
     setBusy(true)
     setError(null)
     try {
@@ -396,10 +491,20 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
       const result = await api.databases.sync(workspaceId!, connection.id)
       setSyncResult(`${result.tables} tables, ${result.columns} columns`)
       setDatabase(connection.id)
+      onAdded(
+        'Database added successfully.',
+        `${connection.engine} · ${connection.name} · ${result.tables} tables imported.`,
+      )
       queryClient.invalidateQueries({ queryKey: ['databases'] })
       queryClient.invalidateQueries({ queryKey: ['schema'] })
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Could not save the connection.')
+      // The same identity already exists, which is a duplicate rather than a
+      // failure -- say so instead of offering "try again".
+      setError(
+        isDuplicate(err)
+          ? 'This database connection already exists. Close this wizard to see it in the list.'
+          : messageOf(err, 'Could not save the connection. Please try again.'),
+      )
     } finally {
       setBusy(false)
     }
@@ -408,7 +513,7 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4 animate-fade-in"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && requestClose()}
     >
       <div
         ref={panelRef}
@@ -422,7 +527,7 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
           <h2 id="wizard-title" className="text-sm font-medium text-fg">
             Connect a database
           </h2>
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close">
+          <Button size="sm" variant="ghost" onClick={requestClose} aria-label="Close">
             <X className="h-3.5 w-3.5" aria-hidden />
           </Button>
         </header>
@@ -502,6 +607,7 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
                 value={form.name}
                 onChange={(e) => set('name', e.target.value)}
                 placeholder="Production analytics"
+                error={fieldError('name')}
               />
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <div className="sm:col-span-2">
@@ -509,31 +615,40 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
                     label="Host"
                     value={form.host}
                     onChange={(e) => set('host', e.target.value)}
+                    error={fieldError('host')}
                   />
                 </div>
                 <Input
                   label="Port"
                   type="number"
+                  min={1}
+                  max={65535}
                   value={form.port}
                   onChange={(e) => set('port', Number(e.target.value))}
+                  error={fieldError('port')}
                 />
               </div>
               <Input
                 label="Database"
                 value={form.database_name}
                 onChange={(e) => set('database_name', e.target.value)}
+                error={fieldError('database_name')}
               />
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Input
                   label="Username"
                   value={form.username}
                   onChange={(e) => set('username', e.target.value)}
+                  error={fieldError('username')}
                 />
                 <Input
                   label="Password"
                   type="password"
+                  autoComplete="new-password"
                   value={form.password}
                   onChange={(e) => set('password', e.target.value)}
+                  error={fieldError('password')}
+                  hint={fieldError('password') ? undefined : 'Encrypted before it is stored.'}
                 />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -582,20 +697,25 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
                 label="Allowed schemas"
                 value={form.allowed_schemas}
                 onChange={(e) => set('allowed_schemas', e.target.value)}
+                error={fieldError('allowed_schemas')}
                 hint="Comma-separated. Queries naming any other schema are rejected."
               />
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Input
                   label="Query timeout (seconds)"
                   type="number"
+                  min={1}
                   value={form.query_timeout_seconds}
                   onChange={(e) => set('query_timeout_seconds', Number(e.target.value))}
+                  error={fieldError('query_timeout_seconds')}
                 />
                 <Input
                   label="Maximum rows"
                   type="number"
+                  min={1}
                   value={form.max_rows}
                   onChange={(e) => set('max_rows', Number(e.target.value))}
+                  error={fieldError('max_rows')}
                 />
               </div>
             </>
@@ -604,33 +724,41 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
           {step === 3 && (
             <div className="space-y-3">
               <Button variant="secondary" onClick={runTest} loading={busy}>
-                <Plug className="h-3.5 w-3.5" aria-hidden /> Test connection
+                <Plug className="h-3.5 w-3.5" aria-hidden />
+                {busy ? 'Connecting...' : 'Test connection'}
               </Button>
-              {test && (
-                <div
-                  className={cn(
-                    'border p-3 text-xs',
-                    test.ok ? 'border-ok/35 bg-ok/5 text-fg' : 'border-danger/35 bg-danger/5 text-fg',
-                  )}
-                >
-                  <p className="flex items-center gap-1.5 font-medium">
-                    <StatusDot tone={test.ok ? 'ok' : 'danger'} />
-                    {test.message}
-                  </p>
-                  {test.server_version && (
-                    <p className="mt-1 font-mono text-2xs text-muted">{test.server_version}</p>
-                  )}
-                  {test.latency_ms != null && (
-                    <p className="font-mono text-2xs tabular-nums text-muted">
-                      {test.latency_ms}ms
-                    </p>
-                  )}
-                  {test.is_read_only_role === false && (
-                    <p className="mt-1 text-2xs text-warn">
-                      This role can create objects. A dedicated read-only role is recommended.
-                    </p>
-                  )}
-                </div>
+              {/* Only non-sensitive facts are echoed back: engine, name, server
+                  version and latency. Never the password or a full DSN. */}
+              {test?.ok && (
+                <SuccessState
+                  message="Database connected successfully."
+                  details={
+                    <>
+                      <span className="capitalize">{form.engine}</span> · {form.database_name} ·
+                      connected
+                      {test.server_version && (
+                        <span className="mt-0.5 block font-mono">{test.server_version}</span>
+                      )}
+                      {test.latency_ms != null && (
+                        <span className="block font-mono tabular-nums">{test.latency_ms}ms</span>
+                      )}
+                      {test.is_read_only_role === false && (
+                        <span className="mt-1 block text-warn">
+                          This role can create objects. A dedicated read-only role is recommended.
+                        </span>
+                      )}
+                    </>
+                  }
+                />
+              )}
+              {test && !test.ok && (
+                <ErrorState
+                  message={
+                    test.message ||
+                    'Unable to connect to the database. Please check your connection details and try again.'
+                  }
+                  onRetry={runTest}
+                />
               )}
             </div>
           )}
@@ -643,16 +771,20 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
                     The schema is read once and cached, so questions do not pay for introspection.
                   </p>
                   <Button variant="primary" onClick={saveAndSync} loading={busy}>
-                    Save and import schema
+                    {busy ? 'Saving...' : 'Save and import schema'}
                   </Button>
                 </>
               ) : (
-                <div className="border border-ok/35 bg-ok/5 p-3">
-                  <p className="flex items-center gap-1.5 text-sm text-fg">
-                    <Check className="h-4 w-4 text-ok" aria-hidden /> Ready
-                  </p>
-                  <p className="mt-1 font-mono text-2xs tabular-nums text-muted">{syncResult}</p>
-                </div>
+                <SuccessState
+                  message="Database added successfully."
+                  details={
+                    <>
+                      <span className="capitalize">{created?.engine ?? form.engine}</span> ·{' '}
+                      {created?.name ?? form.name} · connected
+                      <span className="mt-0.5 block font-mono tabular-nums">{syncResult}</span>
+                    </>
+                  }
+                />
               )}
             </div>
           )}
@@ -676,11 +808,17 @@ function ConnectionWizard({ onClose }: { onClose: () => void }) {
             <Button
               size="sm"
               variant="primary"
-              onClick={() => setStep((s) => s + 1)}
-              disabled={
-                (step === 1 && (!form.name || !form.database_name || !form.username)) ||
-                (step === 3 && !test?.ok)
-              }
+              // Steps with fields stay clickable and reveal what is missing; a
+              // disabled button with no explanation is the worse failure.
+              onClick={() => {
+                if (stepErrors(step)) {
+                  setAttempted((prev) => ({ ...prev, [step]: true }))
+                  return
+                }
+                setError(null)
+                setStep((s) => s + 1)
+              }}
+              disabled={step === 3 && !test?.ok}
             >
               Next
             </Button>

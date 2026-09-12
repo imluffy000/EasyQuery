@@ -7,8 +7,9 @@ import { ClarificationPrompt, ConfirmationPrompt, StatusTrail } from '@/componen
 import { QueryDetailsDrawer, SqlDisclosure, TrustBar } from '@/components/chat/SqlPanel'
 import { ChartView } from '@/components/result/ChartView'
 import { ResultTable } from '@/components/result/ResultTable'
-import { Button, EmptyState, ErrorState } from '@/components/ui'
+import { Button, EmptyState, ErrorState, SuccessState } from '@/components/ui'
 import { ApiRequestError, streamChat } from '@/lib/api'
+import { useUnsavedGuard } from '@/lib/unsavedChanges'
 import { cn, formatDuration, formatNumber } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 import type { ChatResponse, StreamEventName } from '@/types/api'
@@ -61,6 +62,10 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const busy = turns.some((t) => t.streaming)
+
+  // A typed question that has not been sent, or a query still running, is
+  // work the user would lose by navigating away.
+  useUnsavedGuard('chat-composer', input.trim() !== '' || busy)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -131,7 +136,10 @@ export function ChatWorkspace({ canOverrideCost }: { canOverrideCost: boolean })
           update({ error: 'Cancelled.', streaming: false })
         } else {
           update({
-            error: err instanceof ApiRequestError ? err.message : 'The request failed.',
+            error:
+              err instanceof ApiRequestError
+                ? err.message
+                : "We couldn't execute this query. Please review the query or database connection.",
             streaming: false,
           })
         }
@@ -327,6 +335,18 @@ function TurnView({
               />
             ) : (
               <>
+                {/* The result table shows what came back, but not that the run
+                    itself succeeded -- an empty result and a failed query look
+                    alike without this. */}
+                {response.result && (
+                  <div className="mb-3">
+                    <SuccessState
+                      message="Query executed successfully."
+                      details={`${formatNumber(response.result.row_count)} rows in ${formatDuration(response.result.duration_ms)}.`}
+                    />
+                  </div>
+                )}
+
                 {response.answer && (
                   <p className="whitespace-pre-wrap text-sm text-fg">{response.answer}</p>
                 )}
