@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Github } from 'lucide-react'
 
 import { Button, ErrorState, Input } from '@/components/ui'
@@ -13,7 +13,11 @@ import { ApiRequestError, api, tokens } from '@/lib/api'
 export function LoginPage() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  const [searchParams] = useSearchParams()
   const mode: 'login' | 'register' = pathname === '/register' ? 'register' : 'login'
+  // The backend sends a cancelled OAuth attempt here rather than to the error
+  // page. Only a known flag is honoured, so nothing from the URL is rendered.
+  const cancelled = searchParams.get('notice') === 'oauth_cancelled'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [organization, setOrganization] = useState('My Organization')
@@ -80,6 +84,14 @@ export function LoginPage() {
           </header>
 
           <div className="space-y-3 p-4">
+            {cancelled && (
+              <p
+                role="status"
+                className="border border-border bg-elevated p-3 text-xs text-muted"
+              >
+                Sign-in was cancelled. Please try again.
+              </p>
+            )}
             <Button type="button" variant="secondary" className="w-full" onClick={() => socialSignIn('google')}>
               Continue with Google
             </Button>

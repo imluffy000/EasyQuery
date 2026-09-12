@@ -53,6 +53,43 @@ _OAUTH = {
     },
 }
 
+# Extra parameters for the authorization request, per provider.
+_AUTHORIZE_PARAMS: dict[str, dict[str, str]] = {
+    # Without this, Google signs in whichever account already owns the browser
+    # session and never shows a chooser. select_account shows the picker; it
+    # does not re-prompt for the password (that would be prompt=login), and it
+    # does not touch refresh tokens -- this flow never requests offline
+    # access, so Google issues none.
+    "google": {"prompt": "select_account"},
+    # GitHub has no equivalent parameter: it always authorizes the account
+    # owning the current github.com session. That stays correct, because the
+    # EasyQuery user is resolved from the numeric account id in the verified
+    # profile response and never from an existing EasyQuery session.
+    "github": {},
+}
+
+# RFC 6749 section 4.1.2.1, plus the OpenID Connect interaction codes Google
+# can return. Anything outside this set is reported as a generic provider
+# error rather than reflected into a redirect URL.
+_OAUTH_ERROR_CODES = frozenset(
+    {
+        "invalid_request",
+        "unauthorized_client",
+        "unsupported_response_type",
+        "invalid_scope",
+        "server_error",
+        "temporarily_unavailable",
+        "interaction_required",
+        "login_required",
+        "consent_required",
+        "account_selection_required",
+    }
+)
+
+# What both Google and GitHub send when the user presses Cancel or Deny.
+# GitHub also adds error_reason=user_denied, which carries no extra meaning.
+_OAUTH_CANCELLED = "access_denied"
+
 
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
@@ -88,8 +125,34 @@ def _oauth_config(settings: SettingsDep, provider: str) -> tuple[str, str, str]:
     return client_id, secret, callback
 
 
-def _oauth_error(settings: SettingsDep, code: str) -> RedirectResponse:
-    return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/oauth/callback?{urlencode({'error': code})}")
+def _clear_oauth_state(response: RedirectResponse, settings: SettingsDep, provider: str) -> None:
+    """Drop the single-use CSRF cookie once its authorization round trip ends."""
+    response.delete_cookie(
+        f"oauth_state_{provider}", path=f"{settings.api_v1_prefix}/auth/oauth/{provider}"
+    )
+
+
+def _oauth_error(settings: SettingsDep, provider: str, code: str) -> RedirectResponse:
+    response = RedirectResponse(
+        f"{settings.frontend_url.rstrip('/')}/oauth/callback?{urlencode({'error': code})}"
+    )
+    _clear_oauth_state(response, settings, provider)
+    return response
+
+
+def _oauth_cancelled(settings: SettingsDep, provider: str) -> RedirectResponse:
+    """Return a deliberate cancellation to the sign-in page, not the error page.
+
+    Cancelling is a normal choice rather than a failure: no user is created,
+    no token pair is issued, and the only state to undo is the CSRF cookie.
+    The destination is always built from the configured frontend_url, never
+    from a request parameter, so this cannot become an open redirect.
+    """
+    response = RedirectResponse(
+        f"{settings.frontend_url.rstrip('/')}/login?{urlencode({'notice': 'oauth_cancelled'})}"
+    )
+    _clear_oauth_state(response, settings, provider)
+    return response
 
 
 @router.get("/oauth/{provider}/start")
@@ -97,9 +160,16 @@ async def oauth_start(provider: str, settings: SettingsDep) -> RedirectResponse:
     try:
         client_id, _secret, callback = _oauth_config(settings, provider)
     except HTTPException:
-        return _oauth_error(settings, "not_configured")
+        return _oauth_error(settings, provider, "not_configured")
     state = secrets.token_urlsafe(32)
-    query = {"client_id": client_id, "redirect_uri": callback, "response_type": "code", "scope": _OAUTH[provider]["scope"], "state": state}
+    query = {
+        "client_id": client_id,
+        "redirect_uri": callback,
+        "response_type": "code",
+        "scope": _OAUTH[provider]["scope"],
+        "state": state,
+        **_AUTHORIZE_PARAMS.get(provider, {}),
+    }
     response = RedirectResponse(f"{_OAUTH[provider]['authorize']}?{urlencode(query)}")
     response.set_cookie(f"oauth_state_{provider}", state, max_age=600, httponly=True, secure=settings.is_production, samesite="lax", path=f"{settings.api_v1_prefix}/auth/oauth/{provider}")
     return response
@@ -110,13 +180,28 @@ async def oauth_callback(provider: str, request: Request, settings: SettingsDep,
     try:
         client_id, client_secret, callback = _oauth_config(settings, provider)
     except HTTPException:
-        return _oauth_error(settings, "not_configured")
+        return _oauth_error(settings, provider, "not_configured")
+
+    # A provider error arrives in place of a code, so it is resolved before the
+    # state check: there is nothing to exchange either way, and a cancellation
+    # must not be reported as a failure. Genuine errors keep reaching the error
+    # page so a misconfiguration stays visible instead of looking like a
+    # user-initiated cancel.
+    provider_error = request.query_params.get("error")
+    if provider_error:
+        if provider_error == _OAUTH_CANCELLED:
+            return _oauth_cancelled(settings, provider)
+        known = provider_error in _OAUTH_ERROR_CODES
+        return _oauth_error(settings, provider, provider_error if known else "provider_error")
+
     state = request.query_params.get("state")
-    if request.query_params.get("error") or not state or not secrets.compare_digest(state, request.cookies.get(f"oauth_state_{provider}", "")):
-        return _oauth_error(settings, "cancelled_or_invalid_state")
+    if not state or not secrets.compare_digest(
+        state, request.cookies.get(f"oauth_state_{provider}", "")
+    ):
+        return _oauth_error(settings, provider, "invalid_state")
     code = request.query_params.get("code")
     if not code:
-        return _oauth_error(settings, "missing_code")
+        return _oauth_error(settings, provider, "missing_code")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             token_response = await client.post(_OAUTH[provider]["token"], data={"client_id": client_id, "client_secret": client_secret, "code": code, "redirect_uri": callback, "grant_type": "authorization_code"}, headers={"Accept": "application/json"})
@@ -140,7 +225,7 @@ async def oauth_callback(provider: str, request: Request, settings: SettingsDep,
                     raise ValueError("no verified primary email")
                 subject, email, name = str(profile["id"]), str(primary["email"]).lower(), str(profile.get("name") or profile.get("login") or "")
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
-        return _oauth_error(settings, "provider_error")
+        return _oauth_error(settings, provider, "provider_error")
 
     identity = (await session.execute(select(OAuthIdentity).where(OAuthIdentity.provider == provider, OAuthIdentity.provider_subject == subject))).scalar_one_or_none()
     if identity is not None:
@@ -161,12 +246,12 @@ async def oauth_callback(provider: str, request: Request, settings: SettingsDep,
             session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=Role.OWNER.value))
         session.add(OAuthIdentity(user_id=user.id, provider=provider, provider_subject=subject))
     if not user.is_active:
-        return _oauth_error(settings, "account_disabled")
+        return _oauth_error(settings, provider, "account_disabled")
     _apply_bootstrap_admin(settings, user)
     pair = _issue(settings, user)
     fragment = urlencode({"access_token": pair.access_token, "refresh_token": pair.refresh_token})
     response = RedirectResponse(f"{settings.frontend_url.rstrip('/')}/oauth/callback#{fragment}")
-    response.delete_cookie(f"oauth_state_{provider}", path=f"{settings.api_v1_prefix}/auth/oauth/{provider}")
+    _clear_oauth_state(response, settings, provider)
     return response
 
 

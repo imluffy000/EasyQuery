@@ -1,9 +1,9 @@
 import { lazy, useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { Spinner } from '@/components/ui'
+import { ErrorState, Spinner } from '@/components/ui'
 import { api, tokens } from '@/lib/api'
 import { LandingPage } from '@/pages/Landing'
 import { LoginPage } from '@/pages/Login'
@@ -72,6 +72,30 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Only codes the backend actually emits are given text; an unrecognised value
+ * falls back to the generic sentence rather than being echoed from the URL.
+ * A deliberate cancellation never reaches here -- the backend sends that
+ * straight to /login.
+ */
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  not_configured: 'Social sign-in is not configured for this deployment.',
+  invalid_state: 'This sign-in request expired or could not be verified. Please try again.',
+  missing_code: 'The provider did not return an authorization code. Please try again.',
+  provider_error: 'The provider could not complete sign-in. Please try again.',
+  account_disabled: 'This account has been disabled.',
+  server_error: 'The provider reported an error. Please try again shortly.',
+  temporarily_unavailable: 'The provider is temporarily unavailable. Please try again shortly.',
+  invalid_request: 'The sign-in request was rejected by the provider.',
+  unauthorized_client: 'This application is not authorized for sign-in with that provider.',
+  invalid_scope: 'The sign-in request asked for permissions the provider refused.',
+  unsupported_response_type: 'The provider rejected the sign-in request format.',
+  interaction_required: 'The provider needs you to sign in again. Please try again.',
+  login_required: 'The provider needs you to sign in again. Please try again.',
+  consent_required: 'The provider needs your consent to continue. Please try again.',
+  account_selection_required: 'Please choose an account and try again.',
+}
+
 function OAuthCallback() {
   const [error, setError] = useState<string | null>(null)
   const location = useLocation()
@@ -84,10 +108,32 @@ function OAuthCallback() {
       window.history.replaceState(null, '', '/dashboard')
       window.location.replace('/dashboard')
     } else {
-      setError(new URLSearchParams(location.search).get('error') ?? 'Social sign-in could not be completed.')
+      const code = new URLSearchParams(location.search).get('error')
+      setError(
+        (code && OAUTH_ERROR_MESSAGES[code]) ?? 'Social sign-in could not be completed.',
+      )
     }
   }, [location, setError])
-  return <div className="flex h-full items-center justify-center text-sm text-muted">{error ?? 'Signing you in…'}</div>
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center px-4">
+        <div className="w-full max-w-sm space-y-3">
+          <ErrorState message={error} />
+          <Link
+            to="/login"
+            className="block w-full cursor-pointer text-center text-xs text-muted hover:text-fg"
+          >
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted">Signing you in…</div>
+  )
 }
 
 export function App() {
