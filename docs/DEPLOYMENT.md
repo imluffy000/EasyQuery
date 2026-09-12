@@ -30,8 +30,8 @@ it will not change them — use the dashboard or the API.
 | API | `https://easyquery-api.onrender.com` (`srv-daimm7m7bikc7399mrp0`, docker, singapore, **free** plan) |
 | Web | `https://easyquery-web.onrender.com` (`srv-daimkvjm8hqs73dg6kbg`, static site) |
 | Supabase | project `bnjromveriiclniltgdq`, `ap-southeast-1`, Postgres 17.6, transaction pooler on 6543 |
-| Redis | not yet provisioned — `REDIS_URL` is a placeholder and the limiter fails open |
-| Model | `LLM_PROVIDER=echo` — the pipeline runs for real but returns a placeholder query |
+| Redis | Upstash `easyquery-redis`, global with primary `ap-southeast-1`, TLS on 6379 |
+| Model | `LLM_PROVIDER=openrouter`, `nvidia/nemotron-3-super-120b-a12b:free` |
 
 Because the services were not created from the Blueprint, the SPA rewrite and
 the security/cache headers had to be applied separately (`PUT
@@ -184,6 +184,18 @@ over a momentarily degraded rate limiter.
 Then open the static site, register an account, and connect a database.
 
 ## Operational notes
+
+- **Changing an environment variable through the API does not apply it.**
+  `PUT /v1/services/{id}/env-vars/{key}` stores the new value, and
+  `POST /v1/services/{id}/restart` restarts the container *with the
+  environment it already had* — so the process keeps running the old value
+  while the dashboard shows the new one. Only `POST /v1/services/{id}/deploys`
+  picks it up. This is easy to miss because the service stays healthy
+  throughout; check that the live deploy's `createdAt` is later than the env
+  change before believing it took effect.
+- **A rolling deploy serves from the old instance until the new one is
+  healthy**, so probing `/ready` straight after triggering a deploy reports
+  the *previous* configuration. Wait for the deploy to reach `live`.
 
 - **Migrations run at container start**, not in a pre-deploy hook, because the
   free and starter plans do not have one. Alembic locks its version table, so
