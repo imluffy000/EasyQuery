@@ -1,12 +1,15 @@
 import { lazy, useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, WifiOff } from 'lucide-react'
 
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppShell } from '@/components/layout/AppShell'
-import { ErrorState, Spinner } from '@/components/ui'
-import { api, tokens } from '@/lib/api'
+import { Button, ErrorPage, Spinner } from '@/components/ui'
+import { ApiRequestError, api, tokens } from '@/lib/api'
 import { LandingPage } from '@/pages/Landing'
 import { LoginPage } from '@/pages/Login'
+import { NotFoundPage } from '@/pages/NotFound'
 
 /*
  * Routes are split so the Suspense boundary in AppShell is real. Imported
@@ -34,7 +37,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const setWorkspace = useAppStore((s) => s.setWorkspace)
   const hasToken = Boolean(tokens.access)
 
-  const { data: memberships, isLoading, isError } = useQuery({
+  const { data: memberships, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['memberships'],
     queryFn: api.auth.memberships,
     enabled: hasToken,
@@ -59,8 +62,38 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (isError) {
-    tokens.clear()
-    return <Navigate to="/login" replace />
+    // A 401 here means the client already tried its refresh flow and it
+    // failed, so the session genuinely is gone. Anything else -- offline, a
+    // 5xx, a proxy hiccup -- is not evidence of that, and clearing the tokens
+    // on it would turn a momentary blip into a forced logout.
+    if (error instanceof ApiRequestError && error.status === 401) {
+      tokens.clear()
+      return <Navigate to="/login" replace />
+    }
+    return (
+      <ErrorPage
+        icon={<WifiOff className="h-7 w-7" aria-hidden />}
+        code="Connection problem"
+        title="Could not load your workspace"
+        description="EasyQuery could not reach the server. You are still signed in -- check your connection and try again."
+        actions={
+          <>
+            <Button variant="primary" onClick={() => void refetch()}>
+              Try again
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                tokens.clear()
+                window.location.assign('/login')
+              }}
+            >
+              Sign out
+            </Button>
+          </>
+        }
+      />
+    )
   }
 
   return <>{children}</>
@@ -117,17 +150,20 @@ function OAuthCallback() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center px-4">
-        <div className="w-full max-w-sm space-y-3">
-          <ErrorState message={error} />
+      <ErrorPage
+        icon={<AlertTriangle className="h-7 w-7" aria-hidden />}
+        code="Sign-in failed"
+        title="Could not complete sign-in"
+        description={error}
+        actions={
           <Link
             to="/login"
-            className="block w-full cursor-pointer text-center text-xs text-muted hover:text-fg"
+            className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-colors hover:bg-accent/90"
           >
             Back to sign in
           </Link>
-        </div>
-      </div>
+        }
+      />
     )
   }
 
@@ -138,36 +174,40 @@ function OAuthCallback() {
 
 export function App() {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <PublicOnly>
-            <LandingPage />
-          </PublicOnly>
-        }
-      />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<LoginPage />} />
-      <Route path="/oauth/callback" element={<OAuthCallback />} />
-      <Route
-        element={
-          <RequireAuth>
-            <AppShell />
-          </RequireAuth>
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/databases" element={<DatabasesPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/schema" element={<SchemaPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/saved" element={<SavedPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    // Outermost net: catches anything the routed boundary does not, including
+    // a throw from the shell itself.
+    <ErrorBoundary>
+        <Routes>
+        <Route
+          path="/"
+          element={
+            <PublicOnly>
+              <LandingPage />
+            </PublicOnly>
+          }
+        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<LoginPage />} />
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route
+          element={
+            <RequireAuth>
+              <AppShell />
+            </RequireAuth>
+          }
+        >
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/databases" element={<DatabasesPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/schema" element={<SchemaPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/saved" element={<SavedPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+        </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+    </ErrorBoundary>
   )
 }

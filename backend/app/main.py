@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.agents.llm import build_provider
 from app.api.v1 import admin, analytics, auth, chat, databases, health, queries
@@ -128,8 +129,14 @@ def create_app() -> FastAPI:
 def _install_exception_handlers(app: FastAPI) -> None:
     """Every error leaves as the same structured shape (spec section 43)."""
 
-    @app.exception_handler(HTTPException)
-    async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
+    # Registered against Starlette's class, not FastAPI's subclass. Routing
+    # failures -- an unknown path, a wrong method -- raise the parent, and a
+    # handler bound to the child does not catch it, so those two answered with
+    # {"detail": ...} while every other error answered with {"error": {...}}.
+    # Clients parsing one shape got neither a code nor a request id from the
+    # other. FastAPI's HTTPException is a subclass, so this covers both.
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         detail = exc.detail
         if isinstance(detail, dict) and "code" in detail:
             code = str(detail.get("code"))
@@ -191,6 +198,7 @@ def _default_code(status_code: int) -> str:
         401: "UNAUTHENTICATED",
         403: "PERMISSION_DENIED",
         404: "NOT_FOUND",
+        405: "METHOD_NOT_ALLOWED",
         409: "CONFLICT",
         429: "RATE_LIMITED",
         502: "UPSTREAM_ERROR",

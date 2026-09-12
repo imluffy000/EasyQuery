@@ -19,6 +19,7 @@ import {
   UserCog,
 } from 'lucide-react'
 
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { DatabaseSelector } from '@/components/layout/DatabaseSelector'
 import { Button, ConfirmDialog, Spinner } from '@/components/ui'
 import { api, tokens } from '@/lib/api'
@@ -174,15 +175,20 @@ export function AppShell() {
           <div aria-live="polite" className="sr-only">
             {routeName}
           </div>
-          <Suspense
-            fallback={
-              <div className="flex h-full items-center justify-center">
-                <Spinner />
-              </div>
-            }
-          >
-            <Outlet />
-          </Suspense>
+          {/* Per-route, so a page that throws leaves the navigation usable
+              and moving to another route clears it. The boundary is outside
+              Suspense so it also catches a lazy chunk that fails to load. */}
+          <ErrorBoundary resetKey={pathname}>
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <Spinner />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
     </div>

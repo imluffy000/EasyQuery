@@ -1,15 +1,40 @@
 import { useQuery } from '@tanstack/react-query'
-import { ShieldCheck, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ShieldAlert, ShieldCheck, Users } from 'lucide-react'
 
-import { AsyncBoundary, Badge, EmptyState, Panel, Stat } from '@/components/ui'
-import { api } from '@/lib/api'
+import { AsyncBoundary, Badge, EmptyState, ErrorPage, Panel, Stat } from '@/components/ui'
+import { ApiRequestError, api } from '@/lib/api'
 
 export function AdminPage() {
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin-overview'],
     queryFn: api.admin.overview,
     retry: false,
   })
+
+  // Being refused is not a failure to load, and "Try again" cannot fix it.
+  // Telling them apart is the difference between an answer and a dead end.
+  const forbidden =
+    error instanceof ApiRequestError && (error.status === 403 || error.code === 'PERMISSION_DENIED')
+
+  if (forbidden) {
+    return (
+      <ErrorPage
+        icon={<ShieldAlert className="h-7 w-7" aria-hidden />}
+        code="403"
+        title="Administrator access required"
+        description="This console is limited to EasyQuery operators. Your own workspaces and databases are unaffected."
+        actions={
+          <Link
+            to="/dashboard"
+            className="inline-flex h-8 cursor-pointer items-center border border-accent bg-accent px-3 text-sm font-medium text-accent-fg transition-colors hover:bg-accent/90"
+          >
+            Back to dashboard
+          </Link>
+        }
+      />
+    )
+  }
 
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -29,7 +54,7 @@ export function AdminPage() {
           isLoading={isLoading}
           isError={isError}
           onRetry={() => void refetch()}
-          errorMessage="Administrator access is required, or the overview could not be loaded."
+          errorMessage="The administration overview could not be loaded."
         >
           {data && <AdminContent data={data} />}
         </AsyncBoundary>

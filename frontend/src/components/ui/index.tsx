@@ -410,6 +410,53 @@ export function ConfirmDelete({
   )
 }
 
+/**
+ * Full-surface failure, as opposed to ErrorState's inline strip. Used for the
+ * cases where there is no partial page worth showing: an unknown route, a
+ * render that threw, a session that cannot be established, a page the user is
+ * not allowed to see.
+ */
+export function ErrorPage({
+  code,
+  title,
+  description,
+  actions,
+  icon,
+  detail,
+}: {
+  code?: string
+  title: string
+  description?: ReactNode
+  actions?: ReactNode
+  icon?: ReactNode
+  detail?: string
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex h-full min-h-[60vh] items-center justify-center px-4 py-10"
+    >
+      <div className="w-full max-w-md text-center">
+        {icon && <div className="mb-3 flex justify-center text-subtle">{icon}</div>}
+        {code && <p className="micro">{code}</p>}
+        <h1 className="mt-1.5 text-lg font-medium text-fg">{title}</h1>
+        {description && (
+          <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted">{description}</p>
+        )}
+        {actions && (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">{actions}</div>
+        )}
+        {/* Development only. A stack trace is not a user-facing artefact. */}
+        {detail && import.meta.env.DEV && (
+          <pre className="mt-5 max-h-40 overflow-auto border border-border bg-elevated p-2 text-left font-mono text-2xs text-muted">
+            {detail}
+          </pre>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // --- Dialogs ----------------------------------------------------------------
 
 const FOCUSABLE = 'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'
