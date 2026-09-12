@@ -19,11 +19,14 @@ services:
   - type: web
     name: easyquery-api
     runtime: docker
-    # Free works for a demo, but it sleeps after 15 idle minutes and a cold
-    # start runs migrations before the first response, so the first request
-    # after a nap can take ~40s. Starter keeps it warm.
-    plan: starter
-    region: oregon
+    # Free sleeps after 15 idle minutes, and the cold start runs migrations
+    # before the first response, so the first request after a nap can take
+    # ~40s. Switch to `starter` to keep it warm.
+    plan: free
+    # Singapore, to sit next to the Supabase project in ap-southeast-1.
+    # A cross-Pacific control-plane hop costs ~200ms per round trip, and a
+    # single request makes several.
+    region: singapore
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     # /health is the liveness probe and touches nothing. Never point Render at

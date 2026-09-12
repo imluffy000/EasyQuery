@@ -18,6 +18,33 @@ committed — Render prompts for the rest on first apply.
 
 ---
 
+## What is currently deployed
+
+The live environment was created directly through the Render REST API rather
+than by applying this Blueprint, so the two services are **standalone**:
+`render.yaml` documents their configuration but does not drive them. Editing
+it will not change them — use the dashboard or the API.
+
+| Resource | Value |
+| -------- | ----- |
+| API | `https://easyquery-api.onrender.com` (`srv-daimm7m7bikc7399mrp0`, docker, singapore, **free** plan) |
+| Web | `https://easyquery-web.onrender.com` (`srv-daimkvjm8hqs73dg6kbg`, static site) |
+| Supabase | project `bnjromveriiclniltgdq`, `ap-southeast-1`, Postgres 17.6, transaction pooler on 6543 |
+| Redis | not yet provisioned — `REDIS_URL` is a placeholder and the limiter fails open |
+| Model | `LLM_PROVIDER=echo` — the pipeline runs for real but returns a placeholder query |
+
+Because the services were not created from the Blueprint, the SPA rewrite and
+the security/cache headers had to be applied separately (`PUT
+/v1/services/{id}/routes` and `/headers`); a REST-created static site starts
+with neither, so every client-side route 404s until the rewrite exists.
+
+A dormant Blueprint named `EasyQuery` (`exs-dagmovp5efls73b80rpg`) still points
+at this repo with `autoSync: true` and zero resources. If it ever syncs it will
+try to create services with these same names. Delete it, or adopt the services
+into it, to avoid that.
+
+---
+
 ## 1. Supabase
 
 1. Create a project. Save the database password it generates.
@@ -55,7 +82,7 @@ Python, and the schema is created by Alembic on the first deploy.
 ## 2. Upstash
 
 1. Create a Redis database. Pick the region closest to the Render region
-   (`oregon` in the blueprint → `us-west-1`).
+   (`singapore` in the blueprint → `ap-southeast-1`).
 2. Copy the **`rediss://` TCP URL**, not the REST URL:
 
    ```
@@ -162,7 +189,7 @@ Then open the static site, register an account, and connect a database.
   free and starter plans do not have one. Alembic locks its version table, so
   concurrent instances are safe: the first migrates, the rest find nothing to
   do. `RUN_MIGRATIONS=false` disables it.
-- **`WEB_CONCURRENCY=2`** on a 512MB starter instance. Each uvicorn worker
+- **`WEB_CONCURRENCY=2`** on a 512MB instance. Each uvicorn worker
   loads the LangGraph pipeline; four workers get OOM-killed mid-request, which
   surfaces as a 502 with nothing in the application log.
 - **Never regenerate `ENCRYPTION_KEY`.** It decrypts the stored customer
