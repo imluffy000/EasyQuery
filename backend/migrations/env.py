@@ -15,7 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config.settings import get_settings
-from app.database.session import async_database_url
+from app.database.session import async_database_url, asyncpg_connect_args
 
 # Importing the models package registers every table on Base.metadata.
 from app.models import Base  # noqa: F401
@@ -28,7 +28,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 settings = get_settings()
-database_url = async_database_url(str(settings.database_url))
+raw_database_url = str(settings.database_url)
+database_url = async_database_url(raw_database_url)
 config.set_main_option("sqlalchemy.url", database_url)
 
 
@@ -66,6 +67,9 @@ async def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # Empty unless the DSN points at a transaction pooler, which cannot
+        # keep prepared statements alive between statements.
+        connect_args=asyncpg_connect_args(raw_database_url),
     )
     async with connectable.connect() as connection:
         await connection.run_sync(_do_run)

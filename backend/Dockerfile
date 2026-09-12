@@ -23,11 +23,9 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app . .
 USER app
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/api/v1/health').status_code==200 else 1)"
-# Production: gunicorn managing uvicorn workers. Never the dev server.
-CMD ["gunicorn", "app.main:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", "--bind", "0.0.0.0:8000", \
-     "--timeout", "120", "--graceful-timeout", "30", \
-     "--access-logfile", "-", "--error-logfile", "-"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import httpx,os,sys; sys.exit(0 if httpx.get('http://localhost:%s/api/v1/health' % os.environ.get('PORT', '8000')).status_code==200 else 1)"
+# Production: migrate, then gunicorn managing uvicorn workers. Never the dev
+# server. Run through `sh` rather than as an executable so the image builds
+# identically from a Windows checkout, where the exec bit does not survive.
+CMD ["sh", "./docker-entrypoint.sh"]

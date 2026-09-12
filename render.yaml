@@ -1,0 +1,136 @@
+# Render Blueprint -- https://render.com/docs/blueprint-spec
+#
+# Deploys two services:
+#   easyquery-api  Docker web service (FastAPI + gunicorn)
+#   easyquery-web  static site (Vite build served from Render's CDN)
+#
+# Postgres and Redis are NOT declared here: this stack uses Supabase for the
+# control-plane database and Upstash for Redis, so both arrive as connection
+# strings. See docs/DEPLOYMENT.md for where each value comes from.
+#
+# Variables marked `sync: false` are deliberately not in this file -- Render
+# prompts for them on first apply and stores them encrypted. Nothing secret
+# is committed.
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: easyquery-api
+    runtime: docker
+    # Free works for a demo, but it sleeps after 15 idle minutes and a cold
+    # start runs migrations before the first response, so the first request
+    # after a nap can take ~40s. Starter keeps it warm.
+    plan: starter
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # /health is the liveness probe and touches nothing. Never point Render at
+    # /ready: that returns 503 when Redis is briefly unreachable, and Render
+    # would take the whole service out of rotation over a degraded limiter.
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - backend/**
+        - render.yaml
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      # 512MB on starter. Each uvicorn worker loads the LangGraph pipeline, so
+      # more than two is how you get OOM-killed 502s with an empty log.
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: RUN_MIGRATIONS
+        value: "true"
+
+      # --- Supabase (transaction pooler DSN, port 6543) ---
+      - key: DATABASE_URL
+        sync: false
+      # --- Upstash (rediss://default:<password>@<host>:6379) ---
+      - key: REDIS_URL
+        sync: false
+
+      # Generated once, then held by Render. ENCRYPTION_KEY protects stored
+      # customer-database passwords: if it changes, every existing saved
+      # connection becomes undecryptable. Do not regenerate it casually.
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+
+      # --- Model ---
+      - key: LLM_PROVIDER
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_TIMEOUT_SECONDS
+        value: "60"
+      - key: LLM_MAX_OUTPUT_TOKENS
+        value: "4096"
+
+      # --- URLs: the static site's own https:// origin, no trailing slash ---
+      # A wildcard here is rejected at start-up in production.
+      - key: CORS_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "30"
+      - key: QUERY__MAX_EXECUTION_TIME_SECONDS
+        value: "30"
+      - key: QUERY__MAX_ROWS
+        value: "10000"
+
+  # ---------------------------------------------------------------------------
+  # Frontend
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: easyquery-web
+    runtime: static
+    rootDir: frontend
+    # `npm ci` needs a lockfile and this repo does not commit one yet; the
+    # fallback keeps the build working either way.
+    buildCommand: (npm ci || npm install) && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - frontend/**
+        - render.yaml
+    envVars:
+      # Baked into the bundle at build time, so changing it needs a rebuild,
+      # not a restart. Full URL including /api/v1.
+      - key: VITE_API_URL
+        sync: false
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      # Hashed filenames are immutable; index.html must never be cached or a
+      # deploy leaves clients asking for asset bundles that no longer exist.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, must-revalidate
+    routes:
+      # SPA fallback: client-side routes resolve to the app shell.
+      - type: rewrite
+        source: /*
+        destination: /index.html

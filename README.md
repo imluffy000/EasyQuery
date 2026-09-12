@@ -318,10 +318,21 @@ Stated plainly rather than left to be discovered:
   estimate.
 - **Rate limiting is a fixed window**, so it permits a burst at a window
   boundary. A sliding window would be stricter.
-- **No deployment manifests.** Docker images and compose are production-shaped
-  (gunicorn, non-root user, health checks, multi-stage builds), and CI builds
-  and smoke-tests them, but there are no Kubernetes or Terraform manifests and
-  no staging/production environments provisioned.
+- **One deployment target, no Kubernetes.** `render.yaml` deploys the API and
+  the frontend to Render against Supabase Postgres and Upstash Redis
+  (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). There are no Kubernetes or
+  Terraform manifests, and the observability stack in `infra/` is
+  compose-only -- Prometheus, Grafana and the OTel collector are not deployed.
+
+---
+
+## Deployment
+
+`render.yaml` is a Render Blueprint deploying the API (Docker) and the frontend
+(static site) against Supabase Postgres and Upstash Redis. Step by step, with
+the two non-obvious parts -- Supabase's IPv6-only direct host and its
+transaction pooler's incompatibility with prepared statements -- in
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
 ---
 
