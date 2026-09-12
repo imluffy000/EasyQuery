@@ -136,11 +136,6 @@ def build_graph(deps: PipelineDeps) -> Any:
         }
 
     async def ambiguity_detection(state: AgentState) -> dict[str, Any]:
-        # An answer supplied by the user resolves the previous ambiguity;
-        # do not ask again on the resumed run.
-        if state.get("clarification_answer"):
-            return {"ambiguity": AmbiguityResult(is_ambiguous=False)}
-
         context = render_context_block(
             schema=deps.schema_context,
             glossary=deps.glossary,
@@ -151,7 +146,7 @@ def build_graph(deps: PipelineDeps) -> Any:
             result, usage = await deps.llm.structured_generate(
                 system=AMBIGUITY_SYSTEM,
                 prompt=f"{context}\n\nQuestion:\n"
-                f"{wrap_untrusted(state['user_question'], kind=TrustLevel.USER)}",
+                f"{wrap_untrusted(_effective_question(state), kind=TrustLevel.USER)}",
                 schema=AmbiguityResult,
             )
         except LLMError as exc:
@@ -186,15 +181,10 @@ def build_graph(deps: PipelineDeps) -> Any:
             summary=state.get("conversation_summary", ""),
             turns=state.get("recent_turns", []),
         )
-        clarification = state.get("clarification_answer")
-        question = state["user_question"]
-        if clarification:
-            question = f"{question}\n\nThe user clarified: {clarification}"
-
         try:
             plan, usage = await deps.llm.structured_generate(
                 system=PLANNER_SYSTEM,
-                prompt=f"{context}\n\nQuestion:\n{wrap_untrusted(question, kind=TrustLevel.USER)}",
+                prompt=f"{context}\n\nQuestion:\n{wrap_untrusted(_effective_question(state), kind=TrustLevel.USER)}",
                 schema=QueryPlan,
             )
         except LLMError as exc:
@@ -215,7 +205,7 @@ def build_graph(deps: PipelineDeps) -> Any:
             f"Query plan:\n{plan.model_dump_json(indent=2)}\n\n"
             f"Dialect: {state.get('dialect', 'postgres')}\n"
             f"Row ceiling: {deps.max_rows}\n\n"
-            f"Question:\n{wrap_untrusted(state['user_question'], kind=TrustLevel.USER)}"
+            f"Question:\n{wrap_untrusted(_effective_question(state), kind=TrustLevel.USER)}"
         )
         try:
             result, usage = await deps.llm.structured_generate(
@@ -267,7 +257,7 @@ def build_graph(deps: PipelineDeps) -> Any:
 
         prompt = (
             f"Original question:\n"
-            f"{wrap_untrusted(state['user_question'], kind=TrustLevel.USER)}\n\n"
+            f"{wrap_untrusted(_effective_question(state), kind=TrustLevel.USER)}\n\n"
             f"Schema:\n{deps.schema_context}\n\n"
             f"SQL that failed:\n{state.get('generated_sql', '')}\n\n"
             f"Error:\n{error_block}\n\n"
@@ -384,7 +374,7 @@ def build_graph(deps: PipelineDeps) -> Any:
             "truncated": payload.get("truncated", False),
         }
         prompt = (
-            f"Question:\n{wrap_untrusted(state['user_question'], kind=TrustLevel.USER)}\n\n"
+            f"Question:\n{wrap_untrusted(_effective_question(state), kind=TrustLevel.USER)}\n\n"
             f"Assumptions made:\n{json.dumps(plan.assumptions)}\n\n"
             f"Result:\n{wrap_untrusted(json.dumps(compact, default=str), kind=TrustLevel.DATABASE)}"
         )
@@ -485,6 +475,14 @@ def build_graph(deps: PipelineDeps) -> Any:
 
 def _has_fatal_error(state: AgentState) -> bool:
     return any(not e.recoverable for e in state.get("errors", []))
+
+
+def _effective_question(state: AgentState) -> str:
+    """Make a clarification part of every downstream model decision."""
+    answer = (state.get("clarification_answer") or "").strip()
+    if not answer:
+        return state["user_question"]
+    return f"Original question: {state['user_question']}\n\nClarification answer: {answer}"
 
 
 def _can_retry(state: AgentState, limit: int) -> bool:

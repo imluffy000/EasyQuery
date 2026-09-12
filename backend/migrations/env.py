@@ -15,6 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config.settings import get_settings
+from app.database.session import async_database_url
 
 # Importing the models package registers every table on Base.metadata.
 from app.models import Base  # noqa: F401
@@ -27,7 +28,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", str(settings.database_url))
+database_url = async_database_url(str(settings.database_url))
+config.set_main_option("sqlalchemy.url", database_url)
 
 
 def _configure(connection: Connection) -> None:
@@ -43,7 +45,7 @@ def _configure(connection: Connection) -> None:
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=str(settings.database_url),
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

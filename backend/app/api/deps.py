@@ -64,6 +64,19 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def require_superuser(user: CurrentUser) -> User:
+    """Global operations endpoints are never granted by workspace roles."""
+    if not user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "SUPERUSER_REQUIRED", "message": "Administrator access is required."},
+        )
+    return user
+
+
+Superuser = Annotated[User, Depends(require_superuser)]
+
+
 @dataclass
 class WorkspaceContext:
     """An authenticated user's verified access to one workspace."""

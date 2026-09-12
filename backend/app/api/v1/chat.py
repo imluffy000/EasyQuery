@@ -149,7 +149,10 @@ async def list_conversations(
         (
             await session.execute(
                 select(Conversation)
-                .where(Conversation.workspace_id == context.workspace.id)
+                .where(
+                    Conversation.workspace_id == context.workspace.id,
+                    Conversation.user_id == context.user.id,
+                )
                 .order_by(Conversation.updated_at.desc())
                 .limit(min(limit, 200))
             )
@@ -172,6 +175,7 @@ async def get_conversation(
             .where(
                 Conversation.id == conversation_id,
                 Conversation.workspace_id == context.workspace.id,
+                Conversation.user_id == context.user.id,
             )
         )
     ).scalar_one_or_none()
@@ -194,6 +198,7 @@ async def delete_conversation(
             select(Conversation).where(
                 Conversation.id == conversation_id,
                 Conversation.workspace_id == context.workspace.id,
+                Conversation.user_id == context.user.id,
             )
         )
     ).scalar_one_or_none()

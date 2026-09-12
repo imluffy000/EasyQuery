@@ -62,6 +62,25 @@ class UserOut(ORMModel):
     email: str
     full_name: str
     is_active: bool
+    is_superuser: bool
+
+
+class AdminUserOut(ORMModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    is_active: bool
+    is_superuser: bool
+    created_at: datetime
+    workspace_count: int = 0
+
+
+class AdminOverviewOut(BaseModel):
+    users: list[AdminUserOut]
+    total_users: int
+    active_users: int
+    total_workspaces: int
+    total_connections: int
 
 
 class WorkspaceOut(ORMModel):

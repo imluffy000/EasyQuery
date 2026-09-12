@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 14
 
+    # Optional social sign-in. Both values for a provider are required before
+    # its start route is enabled.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_callback_url: str | None = None
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_callback_url: str | None = None
+    frontend_url: str = "http://localhost:5173"
+    # Exact email granted access to the global operations console. Leave empty
+    # unless an operator has explicitly chosen a bootstrap administrator.
+    admin_email: str | None = None
+
     # --- LLM -----------------------------------------------------------------
     llm_provider: Literal["anthropic", "openai", "openrouter", "echo"] = "anthropic"
     llm_model: str = "claude-sonnet-5"

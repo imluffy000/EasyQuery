@@ -15,11 +15,26 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.engine import make_url
 
 from app.config.settings import Settings
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def async_database_url(url: str) -> str:
+    """Convert a normalized PostgreSQL DSN to SQLAlchemy's asyncpg form."""
+    parsed = make_url(url)
+    if parsed.drivername == "postgresql":
+        parsed = parsed.set(drivername="postgresql+asyncpg")
+    # ``sslmode`` and ``channel_binding`` are psycopg/libpq options. asyncpg
+    # rejects both, but does accept its equivalent ``ssl`` mode.
+    sslmode = parsed.query.get("sslmode")
+    parsed = parsed.difference_update_query(["sslmode", "channel_binding"])
+    if sslmode and sslmode.lower() != "disable":
+        parsed = parsed.update_query_dict({"ssl": sslmode})
+    return str(parsed)
 
 
 def init_engine(settings: Settings) -> AsyncEngine:
@@ -29,8 +44,10 @@ def init_engine(settings: Settings) -> AsyncEngine:
     if _engine is not None:
         return _engine
 
+    database_url = async_database_url(str(settings.database_url))
+
     _engine = create_async_engine(
-        str(settings.database_url),
+        database_url,
         echo=False,
         pool_size=10,
         max_overflow=20,

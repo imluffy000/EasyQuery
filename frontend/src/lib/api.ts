@@ -23,6 +23,7 @@ import type {
   StreamEventName,
   TokenPair,
   User,
+  AdminOverview,
   ValidateSQLResult,
 } from '@/types/api'
 
@@ -158,6 +159,10 @@ export const api = {
       post<TokenPair>('/auth/login', body),
     me: () => get<User>('/auth/me'),
     memberships: () => get<Membership[]>('/auth/memberships'),
+  },
+
+  admin: {
+    overview: () => get<AdminOverview>('/admin/overview'),
   },
 
   databases: {

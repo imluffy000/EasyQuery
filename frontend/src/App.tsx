@@ -1,4 +1,4 @@
-import { lazy, useEffect } from 'react'
+import { lazy, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
@@ -21,6 +21,7 @@ const HistoryPage = lazy(() => import('@/pages/History').then((m) => ({ default:
 const SavedPage = lazy(() => import('@/pages/Saved').then((m) => ({ default: m.SavedPage })))
 const AnalyticsPage = lazy(() => import('@/pages/Analytics').then((m) => ({ default: m.AnalyticsPage })))
 const SettingsPage = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.SettingsPage })))
+const AdminPage = lazy(() => import('@/pages/Admin').then((m) => ({ default: m.AdminPage })))
 import { useAppStore } from '@/stores/useAppStore'
 
 /**
@@ -71,6 +72,24 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function OAuthCallback() {
+  const [error, setError] = useState<string | null>(null)
+  const location = useLocation()
+  useEffect(() => {
+    const values = new URLSearchParams(location.hash.slice(1))
+    const access = values.get('access_token')
+    const refresh = values.get('refresh_token')
+    if (access && refresh) {
+      tokens.set({ access_token: access, refresh_token: refresh, token_type: 'bearer', expires_in: 0 })
+      window.history.replaceState(null, '', '/dashboard')
+      window.location.replace('/dashboard')
+    } else {
+      setError(new URLSearchParams(location.search).get('error') ?? 'Social sign-in could not be completed.')
+    }
+  }, [location, setError])
+  return <div className="flex h-full items-center justify-center text-sm text-muted">{error ?? 'Signing you in…'}</div>
+}
+
 export function App() {
   return (
     <Routes>
@@ -84,6 +103,7 @@ export function App() {
       />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<LoginPage />} />
+      <Route path="/oauth/callback" element={<OAuthCallback />} />
       <Route
         element={
           <RequireAuth>
@@ -99,6 +119,7 @@ export function App() {
         <Route path="/saved" element={<SavedPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/admin" element={<AdminPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

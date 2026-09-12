@@ -61,6 +61,9 @@ concrete definitions that would change the answer.
 When asking: give 2-4 concrete options phrased in the user's language, each
 with a short `value` naming the definition. Keep `question` under 12 words.
 Set allow_free_text = true unless the options are genuinely exhaustive.
+
+If a clarification answer is present, verify that it genuinely resolves the
+outstanding choice. "Yes", "maybe", and unrelated new questions do not.
 """
 
 

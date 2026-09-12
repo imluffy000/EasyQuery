@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Github } from 'lucide-react'
 
 import { Button, ErrorState, Input } from '@/components/ui'
 import { ApiRequestError, api, tokens } from '@/lib/api'
@@ -44,6 +44,10 @@ export function LoginPage() {
     }
   }
 
+  const socialSignIn = (provider: 'google' | 'github') => {
+    window.location.assign(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/auth/oauth/${provider}/start`)
+  }
+
   return (
     <div className="flex h-full items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
@@ -76,6 +80,15 @@ export function LoginPage() {
           </header>
 
           <div className="space-y-3 p-4">
+            <Button type="button" variant="secondary" className="w-full" onClick={() => socialSignIn('google')}>
+              Continue with Google
+            </Button>
+            <Button type="button" variant="secondary" className="w-full" onClick={() => socialSignIn('github')}>
+              <Github className="h-3.5 w-3.5" aria-hidden /> Continue with GitHub
+            </Button>
+            <div className="flex items-center gap-2 text-2xs uppercase tracking-[0.1em] text-subtle">
+              <span className="h-px flex-1 bg-border" /> Or <span className="h-px flex-1 bg-border" />
+            </div>
             <Input
               name="email"
               type="email"

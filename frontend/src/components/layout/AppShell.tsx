@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
@@ -15,11 +16,12 @@ import {
   Settings,
   Sun,
   Table2,
+  UserCog,
 } from 'lucide-react'
 
 import { DatabaseSelector } from '@/components/layout/DatabaseSelector'
 import { Button, Spinner } from '@/components/ui'
-import { tokens } from '@/lib/api'
+import { api, tokens } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/useAppStore'
 
@@ -52,9 +54,13 @@ export function AppShell() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const { pathname } = useLocation()
+  const { data: user } = useQuery({ queryKey: ['me'], queryFn: api.auth.me, retry: false })
+  const navigation = user?.is_superuser
+    ? [...NAV, { to: '/admin', label: 'Administration', icon: UserCog }]
+    : NAV
 
   const routeName =
-    NAV.find((n) => pathname.startsWith(n.to))?.label ??
+    navigation.find((n) => pathname.startsWith(n.to))?.label ??
     (pathname.startsWith('/settings') ? 'Settings' : 'Page')
 
   return (
@@ -86,7 +92,7 @@ export function AppShell() {
           )}
         >
           <ul className="flex flex-col py-1.5">
-            {NAV.map(({ to, label, icon: Icon }) => (
+            {navigation.map(({ to, label, icon: Icon }) => (
               <li key={to}>
                 <NavLink
                   to={to}

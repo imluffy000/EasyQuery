@@ -33,6 +33,26 @@ class User(UUIDPrimaryKey, Timestamps, Base):
     memberships: Mapped[list[OrganizationMember]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    oauth_identities: Mapped[list[OAuthIdentity]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class OAuthIdentity(UUIDPrimaryKey, Timestamps, Base):
+    """Provider subject mapping; secrets/tokens are deliberately not stored."""
+
+    __tablename__ = "oauth_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_subject", name="oauth_provider_subject"),
+        UniqueConstraint("user_id", "provider", name="oauth_user_provider"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    user: Mapped[User] = relationship(back_populates="oauth_identities")
 
 
 class Organization(UUIDPrimaryKey, Timestamps, Base):

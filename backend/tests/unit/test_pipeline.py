@@ -13,7 +13,13 @@ from typing import Any
 
 import pytest
 
-from app.agents.graph import PipelineDeps, build_graph, choose_visualization, summarise_result
+from app.agents.graph import (
+    PipelineDeps,
+    _effective_question,
+    build_graph,
+    choose_visualization,
+    summarise_result,
+)
 from app.agents.llm import EchoProvider
 from app.agents.state import ResultSummary, initial_state
 from app.database.connectors.base import (
@@ -139,6 +145,13 @@ async def test_pipeline_reaches_answer() -> None:
     assert not result.get("awaiting_clarification")
     assert connector.executed, "the pipeline must actually execute SQL"
     assert connector.explained, "EXPLAIN must run before execution"
+
+
+def test_clarification_is_part_of_effective_intent() -> None:
+    state = make_state(question="Show the top customers.", clarification_answer="Highest revenue.")
+    assert _effective_question(state) == (
+        "Original question: Show the top customers.\n\nClarification answer: Highest revenue."
+    )
 
 
 async def test_guard_applies_limit_to_executed_sql() -> None:

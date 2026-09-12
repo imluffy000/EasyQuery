@@ -16,6 +16,20 @@ export interface User {
   email: string
   full_name: string
   is_active: boolean
+  is_superuser: boolean
+}
+
+export interface AdminUser extends User {
+  created_at: string
+  workspace_count: number
+}
+
+export interface AdminOverview {
+  users: AdminUser[]
+  total_users: number
+  active_users: number
+  total_workspaces: number
+  total_connections: number
 }
 
 export interface Workspace {

@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.agents.llm import build_provider
-from app.api.v1 import analytics, auth, chat, databases, health, queries
+from app.api.v1 import admin, analytics, auth, chat, databases, health, queries
 from app.config.settings import get_settings
 from app.database.manager import ConnectionManager
 from app.database.session import dispose_engine, init_engine
@@ -110,6 +110,7 @@ def create_app() -> FastAPI:
     prefix = settings.api_v1_prefix
     app.include_router(health.router, prefix=prefix)
     app.include_router(auth.router, prefix=prefix)
+    app.include_router(admin.router, prefix=prefix)
     app.include_router(databases.router, prefix=prefix)
     app.include_router(chat.router, prefix=prefix)
     app.include_router(queries.router, prefix=prefix)

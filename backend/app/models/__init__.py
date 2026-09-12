@@ -20,6 +20,7 @@ from app.models.database_connection import (
 from app.models.tenancy import (
     Organization,
     OrganizationMember,
+    OAuthIdentity,
     User,
     Workspace,
     WorkspaceMember,
@@ -36,6 +37,7 @@ __all__ = [
     "Message",
     "Organization",
     "OrganizationMember",
+    "OAuthIdentity",
     "Query",
     "SavedQuery",
     "UsageMetric",

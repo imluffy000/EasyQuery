@@ -118,11 +118,17 @@ class ChatService:
             clarification_answer=request.clarification_answer,
             user_approved_expensive=request.approve_expensive,
         )
+        # A resumed request transports the original question for routing, but
+        # its durable conversational turn is the user's actual answer.
+        await self._record_user_message(
+            conversation, request.clarification_answer or request.question
+        )
+        if request.clarification_answer:
+            await self._answer_pending_clarification(conversation, request.clarification_answer)
+        # The resumed answer must be present when ambiguity is re-evaluated.
         state["recent_turns"] = await self._recent_turns(conversation.id)
         state["conversation_summary"] = conversation.summary
         state["retrieved_tables"] = tables
-
-        await self._record_user_message(conversation, request.question)
 
         graph = build_graph(deps)
         try:
@@ -191,9 +197,11 @@ class ChatService:
                 await self.session.execute(
                     select(Conversation).where(
                         Conversation.id == request.conversation_id,
-                        # Tenant scoping is re-checked here even though the
-                        # route already authorised the workspace.
+                        # Workspace and user are both re-checked here. A
+                        # conversation can contain pending intent and must
+                        # never be resumed by another member of a workspace.
                         Conversation.workspace_id == request.workspace_id,
+                        Conversation.user_id == request.user_id,
                     )
                 )
             ).scalar_one_or_none()
@@ -230,6 +238,26 @@ class ChatService:
     async def _record_user_message(self, conversation: Conversation, question: str) -> None:
         self.session.add(Message(conversation_id=conversation.id, role="user", content=question))
         await self.session.flush()
+
+    async def _answer_pending_clarification(
+        self, conversation: Conversation, answer: str
+    ) -> None:
+        clarification = (
+            await self.session.execute(
+                select(Clarification)
+                .where(
+                    Clarification.conversation_id == conversation.id,
+                    Clarification.workspace_id == conversation.workspace_id,
+                    Clarification.answer.is_(None),
+                )
+                .order_by(Clarification.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if clarification is not None:
+            clarification.answer = answer
+            clarification.answered_at = datetime.now(UTC)
+            await self.session.flush()
 
     async def _record_assistant_message(
         self, conversation: Conversation, state: AgentState, query: Query
